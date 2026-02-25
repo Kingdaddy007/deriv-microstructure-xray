@@ -6,6 +6,7 @@ const path = require('path');
 module.exports = {
     // Deriv API Configuration
     DERIV_APP_ID: process.env.DERIV_APP_ID || 1089,
+    DERIV_API_TOKEN: process.env.DERIV_API_TOKEN || '',
     DERIV_WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Target Symbols
@@ -14,8 +15,8 @@ module.exports = {
         V100_1S: '1HZ100V'
     },
 
-    // Tick Buffer Size (10 minutes of 1-second ticks)
-    MAX_TICK_HISTORY: 600,
+    // Tick Buffer Size (~50 minutes of 1-second ticks)
+    MAX_TICK_HISTORY: 3000,
 
     // Volatility calculation windows (in ticks = seconds for 1s indices)
     VOL_WINDOWS: [10, 30, 60, 120, 300],

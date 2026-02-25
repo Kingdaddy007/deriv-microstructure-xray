@@ -22,7 +22,7 @@ const THEME = {
     layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
     grid: { vertLines: { color: '#30363d' }, horzLines: { color: '#30363d' } },
     crosshair: { mode: 0 },   // 0 = Normal (allows free pan/scroll)
-    timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#30363d' },
+    timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#30363d', rightOffset: 5 },
     rightPriceScale: { borderColor: '#30363d' }
 };
 const CANDLE_OPTS = { upColor: '#3fb950', downColor: '#f85149', borderVisible: false, wickUpColor: '#3fb950', wickDownColor: '#f85149' };
@@ -159,6 +159,13 @@ class DrawingManager {
             if (d.type === 'hline') {
                 const y = this.series.priceToCoordinate(d.price);
                 if (y != null && Math.abs(cy - y) < 6) return { idx: i };
+            }
+            if (d.t === 'vol') processVol(d);
+
+            // Keep track of spot for dynamic barriers
+            if (d.t === 'tick') {
+                lastKnownSpot = d.tick.price;
+                if (frozenCenterPrice === null) updateGlobalBarriers();
             }
             if (d.type === 'vline') {
                 const x = this.chart.timeScale().timeToCoordinate(d.time);
@@ -483,7 +490,39 @@ class DrawingManager {
             ctx.restore();
         }
 
-        // Draft preview 
+        // Option 1: 2-Minute Window Shading
+        if (window.lastKnownEpoch) {
+            const xRight = this.chart.timeScale().timeToCoordinate(window.lastKnownEpoch);
+            const xLeft = this.chart.timeScale().timeToCoordinate(window.lastKnownEpoch - 120);
+
+            if (xRight != null && xLeft != null) {
+                // Bound to canvas
+                const drawLeft = Math.max(0, xLeft);
+                const drawWidth = xRight - drawLeft;
+
+                if (drawWidth > 0) {
+                    ctx.save();
+                    // Faint blue shading
+                    ctx.fillStyle = 'rgba(88, 166, 255, 0.05)';
+                    ctx.fillRect(drawLeft, 0, drawWidth, H);
+
+                    // Left bounding dotted line
+                    if (xLeft >= 0) {
+                        ctx.strokeStyle = 'rgba(88, 166, 255, 0.4)';
+                        ctx.setLineDash([4, 4]);
+                        ctx.beginPath();
+                        ctx.moveTo(xLeft, 0); ctx.lineTo(xLeft, H);
+                        ctx.stroke();
+
+                        ctx.fillStyle = 'rgba(88, 166, 255, 0.6)';
+                        ctx.fillText('2m Window', Math.min(xLeft + 4, W - 80), H - 10);
+                    }
+                    ctx.restore();
+                }
+            }
+        }
+
+        // Draft preview
         if (this._drafting && this._points.length > 0 && this._mousePos) {
             const last = this._points[this._points.length - 1];
             const p0 = this._toPx(last.time, last.price);
@@ -581,6 +620,11 @@ class ChartSlot {
             else this.pendingData.push(point);
         }
     }
+
+    /** Scroll the chart's time axis to the live edge */
+    scrollToNow() {
+        if (this.chart) this.chart.timeScale().scrollToRealTime();
+    }
 }
 
 // ── Chart Slots ───────────────────────────────────────────────────
@@ -613,6 +657,15 @@ const TAB_SLOTS = {
 
 // Candle data buffers per TF (for grid panel switching)
 const candleBuf = { '5s': [], '10s': [], '15s': [], '30s': [], '1m': [], '2m': [], '5m': [] };
+// Tick data buffer (for grid panels showing tick chart)
+let tickBuf = [];
+
+// ── Barrier State ─────────────────────────────────────────────────
+let barrierOffset = parseFloat($('barrierInput')?.value) || 2.0;
+let barrierDirection = 'up';
+let currentSpot = null;
+// Store price line references per slot key
+const barrierLines = {};
 
 // ── Tab Switching ─────────────────────────────────────────────────
 const allTabs = document.querySelectorAll('.tab');
@@ -631,7 +684,118 @@ function activateTab(viewId) {
 
 allTabs.forEach(tab => tab.addEventListener('click', () => activateTab(tab.dataset.view)));
 
-// ── Flexible Grid ─────────────────────────────────────────────────
+// ── Fullscreen Toggle ─────────────────────────────────────────────
+document.querySelectorAll('.fullscreen-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+        const targetId = btn.dataset.target;
+        const targetEl = $(targetId);
+        if (!targetEl) return;
+
+        const isFullscreen = targetEl.classList.contains('fullscreen');
+        if (isFullscreen) {
+            targetEl.classList.remove('fullscreen');
+            btn.innerHTML = '⛶';
+        } else {
+            targetEl.classList.add('fullscreen');
+            btn.innerHTML = '✖';
+        }
+
+        // Force resize on all slots that might be affected
+        setTimeout(() => {
+            Object.values(slots).forEach(s => {
+                if (s.chart && s.containerId) {
+                    const el = $(s.containerId);
+                    if (el && el.clientWidth > 0) {
+                        s.chart.applyOptions({ width: el.clientWidth, height: Math.max(100, el.clientHeight) });
+                    }
+                }
+            });
+        }, 50);
+    });
+});
+
+// Option 1: Dev Stats Toggle
+const btnToggleStats = $('btnToggleStats');
+const devStatsPanel = $('devStatsPanel');
+if (btnToggleStats && devStatsPanel) {
+    btnToggleStats.addEventListener('click', () => {
+        const isHidden = devStatsPanel.style.display === 'none';
+        devStatsPanel.style.display = isHidden ? 'block' : 'none';
+        btnToggleStats.classList.toggle('active', isHidden);
+    });
+}
+
+const btnMarkNow = $('btnMarkNow');
+if (btnMarkNow) {
+    btnMarkNow.addEventListener('click', () => {
+        if (!window.lastKnownEpoch) return;
+        Object.values(slots).forEach(s => {
+            if (s.drawing && s.chart) {
+                s.drawing.drawings.push({
+                    type: 'vline',
+                    time: window.lastKnownEpoch,
+                    color: s.drawing.drawColor,
+                    lineWidth: 2
+                });
+                s.drawing._requestRender();
+            }
+        });
+    });
+}
+
+// ⏩ Scroll to Now button
+const btnScrollNow = $('btnScrollNow');
+if (btnScrollNow) {
+    btnScrollNow.addEventListener('click', () => {
+        Object.values(slots).forEach(s => s.scrollToNow());
+    });
+}
+
+// ── Flexible Grid Restyling & Dragging ────────────────────────────
+const gridResizer = $('gridResizer');
+const gridLeft = $('gridLeft');
+const gridRight = $('gridRight');
+
+if (gridResizer && gridLeft && gridRight) {
+    let isResizing = false;
+
+    gridResizer.addEventListener('mousedown', (e) => {
+        isResizing = true;
+        gridResizer.classList.add('is-resizing');
+        document.body.style.cursor = 'col-resize';
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (!isResizing) return;
+
+        const viewGrid = $('viewGrid');
+        if (!viewGrid) return;
+
+        const rect = viewGrid.getBoundingClientRect();
+        // Calculate percentage of mouse X relative to grid container width
+        // Min 10%, Max 90%
+        let pct = ((e.clientX - rect.left) / rect.width) * 100;
+        if (pct < 10) pct = 10;
+        if (pct > 90) pct = 90;
+
+        gridLeft.style.flex = `0 0 ${pct}%`;
+        gridRight.style.flex = `0 0 ${100 - pct}%`;
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isResizing) {
+            isResizing = false;
+            gridResizer.classList.remove('is-resizing');
+            document.body.style.cursor = '';
+
+            // Re-trigger resize observer for active charts
+            requestAnimationFrame(() => {
+                if (slots.gridL.chart) slots.gridL.chart.applyOptions({ width: $('gridChartLeft').clientWidth });
+                if (slots.gridR.chart) slots.gridR.chart.applyOptions({ width: $('gridChartRight').clientWidth });
+            });
+        }
+    });
+}
 function getGridTf(side) {
     return $(side === 'left' ? 'gridLeftTf' : 'gridRightTf')?.value ?? '5s';
 }
@@ -639,14 +803,32 @@ function getGridTf(side) {
 function rebuildGridPanel(side) {
     const tf = getGridTf(side);
     const slot = side === 'left' ? slots.gridL : slots.gridR;
-    const data = candleBuf[tf] ?? [];
-    // Re-create series with fresh data
-    if (slot.chart && slot.series) {
+
+    if (!slot.chart) return; // Not yet initialised
+
+    // Remove old series (and its barrier line reference)
+    if (slot.series) {
+        const slotKey = side === 'left' ? 'gridL' : 'gridR';
+        delete barrierLines[slotKey]; // stale ref — will be recreated
         slot.chart.removeSeries(slot.series);
-        slot.series = slot.chart.addSeries(LightweightCharts.CandlestickSeries, CANDLE_OPTS);
-        if (data.length) slot.series.setData(data);
-        slot.chart.timeScale().scrollToRealTime();
+        slot.series = null;
     }
+
+    if (tf === 'tick') {
+        // Line series for tick chart
+        slot.series = slot.chart.addSeries(LightweightCharts.LineSeries, {
+            color: '#58a6ff', lineWidth: 2, priceLineVisible: true, lastValueVisible: true
+        });
+        // Feed tick buffer
+        if (tickBuf.length) slot.series.setData([...tickBuf]);
+    } else {
+        // Candle series for timeframe charts
+        slot.series = slot.chart.addSeries(LightweightCharts.CandlestickSeries, CANDLE_OPTS);
+        const data = candleBuf[tf] ?? [];
+        if (data.length) slot.series.setData(data);
+    }
+
+    slot.chart.timeScale().scrollToRealTime();
 }
 
 $('gridLeftTf')?.addEventListener('change', () => rebuildGridPanel('left'));
@@ -658,6 +840,16 @@ function pushCandle(tf, candle) {
     if (buf.length > 0 && buf[buf.length - 1].time === candle.time) buf[buf.length - 1] = candle;
     else buf.push(candle);
 
+    // Update main chart for this TF
+    slots[tf]?.update(candle);
+
+    // Update grid panels if they show this TF
+    if (getGridTf('left') === tf) slots.gridL?.update(candle);
+    if (getGridTf('right') === tf) slots.gridR?.update(candle);
+}
+
+// Live forming candle — updates the current candle in real-time (tick by tick)
+function updateLiveCandle(tf, candle) {
     // Update main chart for this TF
     slots[tf]?.update(candle);
 
@@ -700,9 +892,22 @@ ws.onmessage = (event) => {
         switch (msg.type) {
             case 'symbol': setText('symbolBadge', msg.data); break;
             case 'config': applyConfig(msg.data); break;
-            case 'tick': slots.tick.update(msg.data); break;
+            case 'tick': {
+                slots.tick.update(msg.data);
+                window.lastKnownEpoch = msg.data.time;
+                // Buffer tick for grid panels
+                tickBuf.push(msg.data);
+                // Also push tick to any grid panels showing the tick chart
+                if (getGridTf('left') === 'tick') slots.gridL?.update(msg.data);
+                if (getGridTf('right') === 'tick') slots.gridR?.update(msg.data);
+                // Update barrier line with new spot price
+                currentSpot = msg.data.value;
+                updateBarrierLines();
+                break;
+            }
             case 'countdown': updateCountdowns(msg.data); break;
             case 'candle_closed': pushCandle(msg.timeframe, msg.data); break;
+            case 'candle_update': updateLiveCandle(msg.timeframe, msg.data); break;
             case 'analytics': handleAnalytics(msg.data); break;
             case 'history': loadHistory(msg.data); break;
         }
@@ -710,7 +915,10 @@ ws.onmessage = (event) => {
 };
 
 function loadHistory(h) {
-    if (h.historicalTicks?.length) slots.tick.setData(h.historicalTicks);
+    if (h.historicalTicks?.length) {
+        slots.tick.setData(h.historicalTicks);
+        tickBuf = [...h.historicalTicks];
+    }
     const map = { '5s': 'historicalC5s', '10s': 'historicalC10s', '15s': 'historicalC15s', '30s': 'historicalC30s', '1m': 'historicalC1m', '2m': 'historicalC2m', '5m': 'historicalC5m' };
     for (const [tf, key] of Object.entries(map)) {
         if (h[key]?.length) {
@@ -727,10 +935,135 @@ function loadHistory(h) {
 function applyConfig(cfg) {
     if ($('barrierInput')) $('barrierInput').value = cfg.barrier;
     if ($('roiInput')) $('roiInput').value = cfg.payoutROI;
+    if (cfg.barrier != null) barrierOffset = parseFloat(cfg.barrier);
     if (cfg.direction) setDirection(cfg.direction);
 }
 
-// ── Analytics ─────────────────────────────────────────────────────
+// ── Barrier Line System ──────────────────────────────────────────
+
+const BARRIER_LINE_OPTS = {
+    color: '#00e5ff',
+    lineWidth: 2,
+    lineStyle: LightweightCharts.LineStyle.Dashed,
+    axisLabelVisible: true,
+    title: 'Barrier',
+};
+
+/**
+ * Creates or updates a barrier price line on a given slot.
+ * Uses series.createPriceLine() (reused via barrierLines map).
+ */
+function setBarrierOnSlot(slotKey, slot, price) {
+    if (!slot?.series) return;
+    try {
+        if (barrierLines[slotKey]) {
+            // Update existing line
+            barrierLines[slotKey].applyOptions({ price });
+        } else {
+            // Create new line
+            barrierLines[slotKey] = slot.series.createPriceLine({
+                ...BARRIER_LINE_OPTS,
+                price,
+            });
+        }
+    } catch (e) {
+        // If series was recreated (e.g. grid panel switch), line ref is stale — recreate
+        try {
+            barrierLines[slotKey] = slot.series.createPriceLine({
+                ...BARRIER_LINE_OPTS,
+                price,
+            });
+        } catch (_) { /* ignore */ }
+    }
+}
+
+/**
+ * Remove a barrier line from a slot (e.g. when grid panel switches type).
+ */
+function removeBarrierFromSlot(slotKey, slot) {
+    if (barrierLines[slotKey] && slot?.series) {
+        try { slot.series.removePriceLine(barrierLines[slotKey]); } catch (_) { }
+    }
+    delete barrierLines[slotKey];
+}
+
+/**
+ * Recalculates the barrier price and updates/creates the line on all active charts.
+ */
+function updateBarrierLines() {
+    if (currentSpot == null) return;
+
+    const barrierPrice = barrierDirection === 'up'
+        ? currentSpot + barrierOffset
+        : currentSpot - barrierOffset;
+
+    // Update on all main chart slots
+    const mainSlots = ['tick', '5s', '10s', '15s', '30s', '1m', '5m'];
+    for (const key of mainSlots) {
+        setBarrierOnSlot(key, slots[key], barrierPrice);
+    }
+
+    // Update on grid panels
+    setBarrierOnSlot('gridL', slots.gridL, barrierPrice);
+    setBarrierOnSlot('gridR', slots.gridR, barrierPrice);
+}
+
+/**
+ * Set the touch direction (up or down) and update the UI + barrier.
+ */
+function setDirection(dir) {
+    barrierDirection = dir;
+    const btnUp = $('btnUp');
+    const btnDown = $('btnDown');
+    if (btnUp) btnUp.classList.toggle('active', dir === 'up');
+    if (btnDown) btnDown.classList.toggle('active', dir === 'down');
+    updateBarrierLines();
+}
+
+// ── Sidebar Barrier Controls ─────────────────────────────────────
+$('barrierInput')?.addEventListener('input', (e) => {
+    barrierOffset = parseFloat(e.target.value) || 0;
+    updateBarrierLines();
+    // Notify server of config change
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_config', barrier: barrierOffset }));
+    }
+});
+
+$('btnUp')?.addEventListener('click', () => {
+    setDirection('up');
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_config', direction: 'up' }));
+    }
+});
+
+$('btnDown')?.addEventListener('click', () => {
+    setDirection('down');
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_config', direction: 'down' }));
+    }
+});
+
+// ── Theme Toggle ──────────────────────────────────────────────────
+let isLightMode = false;
+$('themeToggle')?.addEventListener('click', () => {
+    isLightMode = !isLightMode;
+    document.body.classList.toggle('light-mode', isLightMode);
+    $('themeToggle').textContent = isLightMode ? '☀️' : '🌙';
+
+    // Update all existing charts
+    const newOptions = isLightMode ? {
+        layout: { background: { color: '#ffffff' }, textColor: '#1f2328' },
+        grid: { vertLines: { color: '#d0d7de' }, horzLines: { color: '#d0d7de' } },
+        timeScale: { borderColor: '#d0d7de' },
+        rightPriceScale: { borderColor: '#d0d7de' }
+    } : THEME; // Fallback to original dark THEME
+
+    Object.values(slots).forEach(slot => {
+        if (slot.chart) slot.chart.applyOptions(newOptions);
+    });
+});
+
 function handleAnalytics(d) {
     const a = d.active;
     const pc = d.price > lastPrice ? '#3fb950' : d.price < lastPrice ? '#f85149' : '#c9d1d9';
@@ -746,6 +1079,14 @@ function handleAnalytics(d) {
     setText('ourProb', pct(a.ourProb));
     setText('derivProb', pct(a.impliedProb));
     setText('sampleSize', a.sampleSize > 0 ? a.sampleSize.toLocaleString() : '--');
+
+    // Option 1: Dev Stats Panel
+    if (d.serverStats) {
+        setText('statUptime', `${d.serverStats.uptime}s`);
+        setText('statMemory', `${d.serverStats.memory}MB`);
+        setText('statConnections', d.serverStats.connections);
+        setText('statGaps', d.serverStats.gaps);
+    }
 
     const ep = a.edge * 100;
     setText('edgeNumber', (ep >= 0 ? '+' : '') + ep.toFixed(1) + '%');

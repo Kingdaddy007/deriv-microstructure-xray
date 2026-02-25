@@ -102,13 +102,22 @@ class DerivClient extends EventEmitter {
             this.ws.terminate();
         }
 
+        console.log(`[DerivClient] Connecting to ${this.url}...`);
         this.ws = new WebSocket(this.url);
 
         this.ws.on('open', () => {
             this.isConnected = true;
             this.isReconnecting = false;
             this.reconnectAttempts = 0;
+            console.log(`[DerivClient] ✓ WebSocket connected (app_id: ${this.appId})`);
             this.emit('connect');
+
+            // If we have an API token, authorize first
+            const token = config.DERIV_API_TOKEN;
+            if (token) {
+                console.log(`[DerivClient] Authorizing with API token...`);
+                this.ws.send(JSON.stringify({ authorize: token }));
+            }
 
             // Subscribe to live ticks
             this.ws.send(JSON.stringify({
@@ -116,12 +125,12 @@ class DerivClient extends EventEmitter {
                 subscribe: 1
             }));
 
-            // Keep alive ping every 30s
+            // Keep alive ping every 25s (under Deriv's 30s timeout)
             this.pingInterval = setInterval(() => {
                 if (this.ws.readyState === WebSocket.OPEN) {
                     this.ws.send(JSON.stringify({ ping: 1 }));
                 }
-            }, 30000);
+            }, 25000);
         });
 
         this.ws.on('message', (data) => {

@@ -19,7 +19,11 @@
         <aside class="sidebar">
             <div class="brand">
                 <h1>Micro-Structure X-Ray</h1>
-                <span id="symbolBadge" class="badge">CONNECTING...</span>
+                <div style="display:flex; align-items:center; gap:8px;">
+                    <span id="symbolBadge" class="badge">CONNECTING...</span>
+                    <button id="themeToggle" title="Toggle Light/Dark Mode"
+                        style="background:none; border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; font-size:16px; color:var(--text); transition: all 0.2s;">🌙</button>
+                </div>
             </div>
 
             <div class="sidebar-section">
@@ -119,9 +123,14 @@
                 <button class="tool-btn" data-tool="triangle" title="Triangle">△</button>
                 <button class="tool-btn" data-tool="text" title="Text / Comment">T</button>
                 <div class="toolbar-sep"></div>
+                <button class="tool-btn" id="btnMarkNow"
+                    title="Mark Now (Drop vertical line at current price)">📍</button>
+                <div class="toolbar-sep"></div>
                 <label class="color-label" title="Drawing color">
-                    <input type="color" id="drawingColor" value="#f59e0b">
+                    <input type="color" id="drawColorPicker" value="#58a6ff">
                 </label>
+                <div class="toolbar-sep"></div>
+                <button class="tool-btn" id="btnScrollNow" title="Scroll chart to current time">⏩ Now</button>
                 <button class="tool-btn del-btn" id="btnDeleteDrawing" title="Delete selected drawing">✕</button>
             </div>
 
@@ -138,75 +147,98 @@
                 <div id="chart5s" class="chart-container"></div>
             </div>
             <div id="view10s" class="chart-view">
-                <div class="countdown-bar">
-                    <div class="cd-label">Next 10s candle</div>
-                    <div class="cd-fill" id="cd10s"></div>
-                    <div class="cd-time" id="cdt10s">10.0s</div>
+                <div class="view-header">
+                    <div class="countdown-bar">
+                        <div class="cd-label">Next 10s candle</div>
+                        <div class="cd-fill" id="cd10s"></div>
+                        <div class="cd-time" id="cdt10s">10.0s</div>
+                    </div>
+                    <button class="icon-btn fullscreen-btn" data-target="view10s" title="Fullscreen">⛶</button>
                 </div>
                 <div id="chart10s" class="chart-container"></div>
             </div>
             <div id="view15s" class="chart-view">
-                <div class="countdown-bar">
-                    <div class="cd-label">Next 15s candle</div>
-                    <div class="cd-fill" id="cd15s"></div>
-                    <div class="cd-time" id="cdt15s">15.0s</div>
+                <div class="view-header">
+                    <div class="countdown-bar">
+                        <div class="cd-label">Next 15s candle</div>
+                        <div class="cd-fill" id="cd15s"></div>
+                        <div class="cd-time" id="cdt15s">15.0s</div>
+                    </div>
+                    <button class="icon-btn fullscreen-btn" data-target="view15s" title="Fullscreen">⛶</button>
                 </div>
                 <div id="chart15s" class="chart-container"></div>
             </div>
             <div id="view30s" class="chart-view">
-                <div class="countdown-bar">
-                    <div class="cd-label">Next 30s candle</div>
-                    <div class="cd-fill" id="cd30s"></div>
-                    <div class="cd-time" id="cdt30s">30.0s</div>
+                <div class="view-header">
+                    <div class="countdown-bar">
+                        <div class="cd-label">Next 30s candle</div>
+                        <div class="cd-fill" id="cd30s"></div>
+                        <div class="cd-time" id="cdt30s">30.0s</div>
+                    </div>
+                    <button class="icon-btn fullscreen-btn" data-target="view30s" title="Fullscreen">⛶</button>
                 </div>
                 <div id="chart30s" class="chart-container"></div>
             </div>
             <div id="view1m" class="chart-view">
-                <div class="countdown-bar">
-                    <div class="cd-label">Next 1m candle</div>
-                    <div class="cd-fill" id="cd1m"></div>
-                    <div class="cd-time" id="cdt1m">60.0s</div>
+                <div class="view-header">
+                    <div class="countdown-bar">
+                        <div class="cd-label">Next 1m candle</div>
+                        <div class="cd-fill" id="cd1m"></div>
+                        <div class="cd-time" id="cdt1m">60.0s</div>
+                    </div>
+                    <button class="icon-btn fullscreen-btn" data-target="view1m" title="Fullscreen">⛶</button>
                 </div>
                 <div id="chart1m" class="chart-container"></div>
             </div>
             <div id="view5m" class="chart-view">
-                <div class="countdown-bar">
-                    <div class="cd-label">Next 5m candle</div>
-                    <div class="cd-fill" id="cd5m"></div>
-                    <div class="cd-time" id="cdt5m">300s</div>
+                <div class="view-header">
+                    <div class="countdown-bar">
+                        <div class="cd-label">Next 5m candle</div>
+                        <div class="cd-fill" id="cd5m"></div>
+                        <div class="cd-time" id="cdt5m">300s</div>
+                    </div>
+                    <button class="icon-btn fullscreen-btn" data-target="view5m" title="Fullscreen">⛶</button>
                 </div>
                 <div id="chart5m" class="chart-container"></div>
             </div>
 
-            <!-- Flexible Grid View -->
             <div id="viewGrid" class="chart-view grid-view">
-                <div class="grid-cell">
+                <div class="grid-cell" id="gridLeft">
                     <div class="grid-header">
-                        <select class="tf-select" id="gridLeftTf">
-                            <option value="5s" selected>5 Seconds</option>
-                            <option value="10s">10 Seconds</option>
-                            <option value="15s">15 Seconds</option>
-                            <option value="30s">30 Seconds</option>
-                            <option value="1m">1 Minute</option>
-                            <option value="2m">2 Minutes</option>
-                            <option value="5m">5 Minutes</option>
-                        </select>
-                        <span class="cd-inline" id="cdGridLeft">--</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <select class="tf-select" id="gridLeftTf">
+                                <option value="tick">Tick Chart</option>
+                                <option value="5s" selected>5 Seconds</option>
+                                <option value="10s">10 Seconds</option>
+                                <option value="15s">15 Seconds</option>
+                                <option value="30s">30 Seconds</option>
+                                <option value="1m">1 Minute</option>
+                                <option value="2m">2 Minutes</option>
+                                <option value="5m">5 Minutes</option>
+                            </select>
+                            <span class="cd-inline" id="cdGridLeft">--</span>
+                        </div>
+                        <button class="icon-btn fullscreen-btn" data-target="gridLeft" title="Fullscreen">⛶</button>
                     </div>
                     <div id="gridChartLeft" class="chart-container"></div>
                 </div>
-                <div class="grid-cell">
+                <div class="grid-resizer" id="gridResizer"></div>
+                <div class="grid-cell" id="gridRight">
                     <div class="grid-header">
-                        <select class="tf-select" id="gridRightTf">
-                            <option value="5s">5 Seconds</option>
-                            <option value="10s">10 Seconds</option>
-                            <option value="15s" selected>15 Seconds</option>
-                            <option value="30s">30 Seconds</option>
-                            <option value="1m">1 Minute</option>
-                            <option value="2m">2 Minutes</option>
-                            <option value="5m">5 Minutes</option>
-                        </select>
-                        <span class="cd-inline" id="cdGridRight">--</span>
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            <select class="tf-select" id="gridRightTf">
+                                <option value="tick">Tick Chart</option>
+                                <option value="5s">5 Seconds</option>
+                                <option value="10s">10 Seconds</option>
+                                <option value="15s" selected>15 Seconds</option>
+                                <option value="30s">30 Seconds</option>
+                                <option value="1m">1 Minute</option>
+                                <option value="2m">2 Minutes</option>
+                                <option value="5m">5 Minutes</option>
+                            </select>
+                            <span class="cd-inline" id="cdGridRight">--</span>
+                        </div>
+                        <button class="icon-btn fullscreen-btn" data-target="gridRight" title="Fullscreen">⛶</button>
                     </div>
                     <div id="gridChartRight" class="chart-container"></div>
                 </div>
@@ -215,6 +247,22 @@
         </main>
     </div>
 
+    <!-- Developer Stats Floating Panel -->
+    <div id="devStatsPanel" class="dev-stats-panel" style="display: none;">
+        <div class="stats-header">Developer Stats (Server)</div>
+        <div class="stats-grid">
+            <div class="stat-label">Uptime:</div>
+            <div class="stat-value" id="statUptime">--s</div>
+            <div class="stat-label">Memory:</div>
+            <div class="stat-value" id="statMemory">--MB</div>
+            <div class="stat-label">Connections:</div>
+            <div class="stat-value" id="statConnections">--</div>
+            <div class="stat-label">Gap Events:</div>
+            <div class="stat-value" id="statGaps">--</div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
     <!-- Text input overlay for comment tool -->
     <div id="textInputOverlay" class="text-input-overlay" style="display:none">
         <input type="text" id="textInputField" placeholder="Type comment, Enter to place">
