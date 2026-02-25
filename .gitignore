@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Local data & database
+data/
+*.db
+*.db-shm
+*.db-wal
+
+# Code export dumps
+MVP_CODE_EXPORT.txt
+MVP_CODE_EXPORT.md
+CODE_DUMP.md
+
+# Environment variables (never commit secrets)
+.env
+.env.local
+.env.*.local
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor folders
+.vscode/
+.idea/

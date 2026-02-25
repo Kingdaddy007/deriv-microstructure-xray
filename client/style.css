@@ -1,0 +1,353 @@
+:root {
+    --bg: #0d1117;
+    --panel: #161b22;
+    --border: #30363d;
+    --text: #c9d1d9;
+    --muted: #8b949e;
+    --accent: #58a6ff;
+    --green: #3fb950;
+    --red: #f85149;
+    --yellow: #d29922;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+html,
+body {
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.bold {
+    font-weight: 700;
+}
+
+.muted {
+    color: var(--muted);
+}
+
+.small {
+    font-size: 0.75rem;
+}
+
+/* ── App Layout ── */
+.app {
+    display: flex;
+    height: 100vh;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+    width: 280px;
+    min-width: 280px;
+    background: var(--panel);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    scrollbar-width: thin;
+}
+
+.brand {
+    padding: 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.brand h1 {
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+}
+
+.badge {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 0.7rem;
+    padding: 2px 7px;
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--accent);
+    border-radius: 4px;
+}
+
+.sidebar-section {
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--border);
+}
+
+.sidebar-section label {
+    display: block;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    color: var(--muted);
+    margin-bottom: 0.6rem;
+}
+
+.price {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+}
+
+.warmup-pill {
+    display: inline-block;
+    margin-top: 5px;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    background: rgba(210, 153, 34, 0.1);
+    color: var(--yellow);
+    border: 1px solid rgba(210, 153, 34, 0.25);
+    border-radius: 10px;
+}
+
+/* Toggle */
+.toggle-group {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 0.6rem;
+}
+
+.toggle-btn {
+    flex: 1;
+    padding: 7px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+}
+
+.toggle-btn.active {
+    background: rgba(88, 166, 255, 0.1);
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
+/* Inputs */
+.input-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+}
+
+.input-group span {
+    display: block;
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-bottom: 3px;
+}
+
+.input-group input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 5px 8px;
+    border-radius: 4px;
+    font-size: 0.85rem;
+}
+
+.input-group input:focus {
+    border-color: var(--accent);
+    outline: none;
+}
+
+/* Data Rows */
+.data-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    margin-bottom: 5px;
+    color: var(--muted);
+}
+
+.data-row span:last-child {
+    color: var(--text);
+}
+
+.data-row.divider {
+    border-top: 1px dashed var(--border);
+    padding-top: 6px;
+    margin-top: 4px;
+    color: var(--text);
+}
+
+.mt-sm {
+    margin-top: 0.4rem;
+}
+
+/* Edge Number */
+.edge-number {
+    font-size: 2rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+/* Warnings List */
+.warnings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.warning-item {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+    background: rgba(210, 153, 34, 0.08);
+    color: var(--yellow);
+    border-left: 2px solid var(--yellow);
+    border-radius: 2px;
+}
+
+.no-warnings {
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+
+/* Vol Bars */
+.vol-bars {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.vol-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+
+.vol-row span {
+    width: 22px;
+    text-align: right;
+}
+
+.bar-track {
+    flex: 1;
+    height: 5px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 3px;
+}
+
+.bar-fill {
+    height: 100%;
+    background: var(--accent);
+    width: 0%;
+    transition: width 0.25s;
+    border-radius: 3px;
+}
+
+.bar-fill.hot {
+    background: var(--green);
+}
+
+.bar-fill.cold {
+    background: var(--red);
+}
+
+/* ── Chart Area ── */
+.chart-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--bg);
+}
+
+/* Tab Bar */
+.tab-bar {
+    height: 44px;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 0 0.75rem;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+
+.tab {
+    padding: 5px 14px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-weight: 500;
+    border: none;
+    background: transparent;
+    color: var(--muted);
+}
+
+.tab:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text);
+}
+
+.tab.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+/* Chart Views */
+.chart-view {
+    display: none;
+    flex: 1;
+    position: relative;
+}
+
+.chart-view.active {
+    display: flex;
+    flex-direction: column;
+}
+
+/* Chart containers fill their parent */
+.chart-container {
+    position: absolute;
+    inset: 0;
+}
+
+/* Grid View */
+.grid-view {
+    flex-direction: row !important;
+    gap: 1px;
+    background: var(--border);
+}
+
+.grid-cell {
+    flex: 1;
+    position: relative;
+    background: var(--bg);
+}
+
+.grid-label {
+    position: absolute;
+    top: 8px;
+    left: 10px;
+    z-index: 5;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid var(--border);
+    border-radius: 3px;
+}

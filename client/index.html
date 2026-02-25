@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Micro-Structure X-Ray</title>
+    <link rel="stylesheet" href="style.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <script src="/lib/lightweight-charts.standalone.production.js"></script>
+</head>
+
+<body>
+    <div class="app">
+
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="brand">
+                <h1>Micro-Structure X-Ray</h1>
+                <span id="symbolBadge" class="badge">CONNECTING...</span>
+            </div>
+
+            <!-- Market State -->
+            <div class="sidebar-section">
+                <label>Market</label>
+                <div id="currentPrice" class="price mono">--.--</div>
+                <div id="tickCounter" class="muted small">0 ticks</div>
+                <div id="warmupBadge" class="warmup-pill">WARMING UP</div>
+            </div>
+
+            <!-- Decision Parameters -->
+            <div class="sidebar-section">
+                <label>Parameters</label>
+                <div class="toggle-group">
+                    <button class="toggle-btn active" id="btnUp">Touch ▲</button>
+                    <button class="toggle-btn" id="btnDown">Touch ▼</button>
+                </div>
+                <div class="input-row">
+                    <div class="input-group">
+                        <span>Barrier</span>
+                        <input type="number" id="barrierInput" title="Barrier distance" placeholder="e.g. 2.0"
+                            value="2.0" step="0.01" class="mono">
+                    </div>
+                    <div class="input-group">
+                        <span>ROI %</span>
+                        <input type="number" id="roiInput" title="Payout ROI percent" placeholder="e.g. 109" value="109"
+                            step="1" class="mono">
+                    </div>
+                </div>
+            </div>
+
+            <!-- Probabilities (neutral, no directive) -->
+            <div class="sidebar-section">
+                <label>Probability Analysis</label>
+                <div class="data-row"><span>Theoretical (GBM)</span><span id="theoProb" class="mono">--%</span></div>
+                <div class="data-row"><span>Empirical (Data)</span><span id="empProb" class="mono">--%</span></div>
+                <div class="data-row divider"><span>Model Estimate</span><span id="ourProb" class="mono bold">--%</span>
+                </div>
+                <div class="data-row"><span>Breakeven</span><span id="derivProb" class="mono">--%</span></div>
+                <div class="data-row"><span>Sample Size</span><span id="sampleSize" class="mono">--</span></div>
+            </div>
+
+            <!-- Mathematical Edge (neutral display) -->
+            <div class="sidebar-section">
+                <label>Difference (Model − Breakeven)</label>
+                <div id="edgeNumber" class="edge-number mono">--%</div>
+            </div>
+
+            <!-- Warnings (context, not directives) -->
+            <div class="sidebar-section" id="warningsSection">
+                <label>Context</label>
+                <div id="warningsList" class="warnings-list"></div>
+            </div>
+
+            <!-- Volatility -->
+            <div class="sidebar-section">
+                <label>Volatility (Log-Return σ)</label>
+                <div class="vol-bars">
+                    <div class="vol-row"><span>10s</span>
+                        <div class="bar-track">
+                            <div id="bar10" class="bar-fill"></div>
+                        </div>
+                    </div>
+                    <div class="vol-row"><span>30s</span>
+                        <div class="bar-track">
+                            <div id="bar30" class="bar-fill"></div>
+                        </div>
+                    </div>
+                    <div class="vol-row"><span>60s</span>
+                        <div class="bar-track">
+                            <div id="bar60" class="bar-fill"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="data-row mt-sm"><span>Vol Ratio</span><span id="volRatio" class="mono">--</span></div>
+                <div class="data-row"><span>State</span><span id="volTrend" class="mono">--</span></div>
+                <div class="data-row"><span>Momentum</span><span id="momentum" class="mono">--</span></div>
+            </div>
+        </aside>
+
+        <!-- Chart Area -->
+        <main class="chart-area">
+            <div class="tab-bar">
+                <button class="tab active" data-view="tickView">Tick</button>
+                <button class="tab" data-view="view5s">5s</button>
+                <button class="tab" data-view="view10s">10s</button>
+                <button class="tab" data-view="view15s">15s</button>
+                <button class="tab" data-view="viewGrid">Grid 5s / 15s</button>
+            </div>
+
+            <div id="tickView" class="chart-view active">
+                <div id="tickChart" class="chart-container"></div>
+            </div>
+            <div id="view5s" class="chart-view">
+                <div id="chart5s" class="chart-container"></div>
+            </div>
+            <div id="view10s" class="chart-view">
+                <div id="chart10s" class="chart-container"></div>
+            </div>
+            <div id="view15s" class="chart-view">
+                <div id="chart15s" class="chart-container"></div>
+            </div>
+            <div id="viewGrid" class="chart-view grid-view">
+                <div class="grid-cell">
+                    <div class="grid-label">5s</div>
+                    <div id="gridChart5" class="chart-container"></div>
+                </div>
+                <div class="grid-cell">
+                    <div class="grid-label">15s</div>
+                    <div id="gridChart15" class="chart-container"></div>
+                </div>
+            </div>
+        </main>
+
+    </div>
+    <script src="app.js"></script>
+</body>
+
+</html>
