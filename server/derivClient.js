@@ -32,31 +32,51 @@ class DerivClient extends EventEmitter {
     }
 
     /**
-     * Fetch historical ticks for the last `seconds` before now.
-     * Returns a promise that resolves with an array of { epoch, quote }.
-     * Uses a fresh one-shot WebSocket so it doesn't interfere with live stream.
+     * Fetch historical ticks by paginating backwards in time.
+     * Makes up to `pages` requests of 5000 ticks each, giving ~4h of history.
+     * Returns sorted, deduplicated array of { epoch, quote }.
      *
-     * @param {number} seconds - How many seconds of history to load (max 3600 = 1h)
+     * @param {number} pages - How many pages of 5000 ticks to fetch (default 3 = ~4h)
      * @returns {Promise<Array<{epoch: number, quote: number}>>}
      */
-    fetchHistory(seconds = 3600) {
-        return new Promise((resolve, reject) => {
-            const end = Math.floor(Date.now() / 1000);
-            const start = end - seconds;
-            const histWs = new WebSocket(this.url);
+    async fetchHistory(pages = 3) {
+        const allTicks = [];
+        let endEpoch = Math.floor(Date.now() / 1000);
 
-            const timeout = setTimeout(() => {
-                histWs.terminate();
-                reject(new Error('ticks_history timeout'));
-            }, 15000);
+        for (let page = 0; page < pages; page++) {
+            try {
+                const batch = await this._fetchHistoryPage(endEpoch, 5000);
+                if (!batch || batch.length === 0) break;
+                allTicks.push(...batch);
+                // Walk backwards: next request ends just before earliest tick in this batch
+                endEpoch = batch[0].epoch - 1;
+            } catch (e) {
+                console.warn(`[DerivClient] History page ${page} failed:`, e.message);
+                break;
+            }
+        }
+
+        // Sort chronologically and deduplicate
+        allTicks.sort((a, b) => a.epoch - b.epoch);
+        const deduped = [];
+        let lastEpoch = -1;
+        for (const t of allTicks) {
+            if (t.epoch !== lastEpoch) { deduped.push(t); lastEpoch = t.epoch; }
+        }
+        return deduped;
+    }
+
+    _fetchHistoryPage(endEpoch, count = 5000) {
+        return new Promise((resolve) => {
+            const histWs = new WebSocket(this.url);
+            const timeout = setTimeout(() => { histWs.terminate(); resolve([]); }, 12000);
 
             histWs.on('open', () => {
                 histWs.send(JSON.stringify({
                     ticks_history: this.symbol,
-                    start,
-                    end,
-                    style: 'ticks',
-                    count: 3600  // Deriv max per request
+                    end: endEpoch,
+                    count,
+                    style: 'ticks'
                 }));
             });
 
@@ -65,30 +85,15 @@ class DerivClient extends EventEmitter {
                 histWs.terminate();
                 try {
                     const msg = JSON.parse(data.toString());
-                    if (msg.error) {
-                        console.warn(`[DerivClient] History error: ${msg.error.message}`);
-                        resolve([]);
-                        return;
-                    }
-                    if (msg.history && msg.history.times && msg.history.prices) {
-                        const ticks = msg.history.times.map((epoch, i) => ({
-                            epoch,
-                            quote: msg.history.prices[i]
-                        }));
-                        resolve(ticks);
-                    } else {
-                        resolve([]);
-                    }
-                } catch (e) {
-                    resolve([]);
-                }
+                    if (msg.error || !msg.history) { resolve([]); return; }
+                    const ticks = msg.history.times.map((epoch, i) => ({
+                        epoch, quote: msg.history.prices[i]
+                    }));
+                    resolve(ticks);
+                } catch { resolve([]); }
             });
 
-            histWs.on('error', (err) => {
-                clearTimeout(timeout);
-                console.warn(`[DerivClient] History WS error: ${err.message}`);
-                resolve([]);
-            });
+            histWs.on('error', () => { clearTimeout(timeout); resolve([]); });
         });
     }
 

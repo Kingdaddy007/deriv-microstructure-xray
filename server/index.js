@@ -1,6 +1,9 @@
 /**
- * Server Entry Point (v3) — Clean Rebuild
- * Fixes: adds 10s candle aggregation
+ * Server Entry Point (v4) — Time-Based Candles + Countdown
+ * Changes from v3:
+ * - Candle aggregation is now TIME-based (real seconds), not tick-count-based
+ * - Broadcasts candle countdown state for each timeframe
+ * - History pre-fill uses paginated fetch (3 pages × 5000 = ~4h)
  */
 
 const express = require('express');
@@ -33,38 +36,80 @@ const edgeCalc = new EdgeCalculator(volEngine);
 // --- State ---
 let tickCount = 0;
 let uiConfig = { barrier: 2.0, payoutROI: 109, direction: 'up' };
-let historySnapshot = null; // Set after fetchHistory() completes
+let historySnapshot = null;
 
-// --- Candle Aggregators: 5s, 10s, 15s ---
-function makeCandle() {
-    return { o: 0, h: -Infinity, l: Infinity, c: 0, time: 0, ticksIn: 0 };
+// --- Time-Based Candle Aggregators ---
+// Timeframes in seconds
+const TIMEFRAMES = { '5s': 5, '10s': 10, '15s': 15, '30s': 30, '1m': 60, '2m': 120, '5m': 300 };
+
+function makeTCandle(tfSec, nowEpoch) {
+    // Align open time to the nearest timeframe boundary
+    const openTime = Math.floor(nowEpoch / tfSec) * tfSec;
+    return { openTime, closeTime: openTime + tfSec, o: null, h: -Infinity, l: Infinity, c: null };
 }
-function updateCandle(candle, price, epoch) {
-    candle.ticksIn++;
-    if (candle.ticksIn === 1) { candle.o = price; candle.time = epoch; }
+
+// Active candles keyed by timeframe label
+const activeCandles = {};
+for (const [label, secs] of Object.entries(TIMEFRAMES)) {
+    activeCandles[label] = makeTCandle(secs, Math.floor(Date.now() / 1000));
+}
+
+function updateTCandle(candle, price) {
+    if (candle.o === null) candle.o = price;
     if (price > candle.h) candle.h = price;
     if (price < candle.l) candle.l = price;
     candle.c = price;
 }
-function resetCandle(candle, price, epoch) {
-    candle.o = price; candle.h = price; candle.l = price; candle.c = price;
-    candle.time = epoch; candle.ticksIn = 0;
-}
-function candlePayload(c) {
-    return { time: c.time, open: c.o, high: c.h, low: c.l, close: c.c };
+
+function processTick(price, epoch) {
+    // Closed types to broadcast this tick
+    const closed = {};
+    for (const [label, secs] of Object.entries(TIMEFRAMES)) {
+        const candle = activeCandles[label];
+        if (epoch >= candle.closeTime) {
+            // Close and broadcast this candle
+            if (candle.o !== null) {
+                closed[label] = { time: candle.openTime, open: candle.o, high: candle.h, low: candle.l, close: candle.c };
+            }
+            activeCandles[label] = makeTCandle(secs, epoch);
+        }
+        updateTCandle(activeCandles[label], price);
+    }
+    return closed;
 }
 
-const candle5s = makeCandle();
-const candle10s = makeCandle();
-const candle15s = makeCandle();
+// Candle helper for history replay
+function makeHistoryCandles(ticks) {
+    const builders = {};
+    const result = {};
+    for (const [label, secs] of Object.entries(TIMEFRAMES)) {
+        builders[label] = null;
+        result[label] = [];
+    }
+    for (const t of ticks) {
+        for (const [label, secs] of Object.entries(TIMEFRAMES)) {
+            const bucketTime = Math.floor(t.epoch / secs) * secs;
+            if (!builders[label] || builders[label].openTime !== bucketTime) {
+                if (builders[label] && builders[label].o !== null) {
+                    result[label].push({ time: builders[label].openTime, open: builders[label].o, high: builders[label].h, low: builders[label].l, close: builders[label].c });
+                }
+                builders[label] = { openTime: bucketTime, o: null, h: -Infinity, l: Infinity, c: null };
+            }
+            const b = builders[label];
+            if (b.o === null) b.o = t.quote;
+            if (t.quote > b.h) b.h = t.quote;
+            if (t.quote < b.l) b.l = t.quote;
+            b.c = t.quote;
+        }
+    }
+    return result;
+}
 
 // --- WebSocket ---
 wss.on('connection', (ws) => {
     console.log('[UI] Client connected');
     ws.send(JSON.stringify({ type: 'config', data: uiConfig }));
     ws.send(JSON.stringify({ type: 'symbol', data: primarySymbol }));
-
-    // Send historical data snapshot so charts pre-fill immediately
     if (historySnapshot) {
         ws.send(JSON.stringify({ type: 'history', data: historySnapshot }));
     }
@@ -91,63 +136,31 @@ function broadcast(msg) {
 // --- Deriv Stream ---
 console.log(`[System] Connecting to Deriv for ${primarySymbol}...`);
 
-// Step 1: Pre-fill with historical ticks so charts aren't blank
-derivClient.fetchHistory(3600).then(history => {
+derivClient.fetchHistory(3).then(history => {
     if (history.length > 0) {
         console.log(`[System] Pre-filling ${history.length} historical ticks...`);
-
-        // Reset candle state before replaying history
-        const hCandle5 = makeCandle();
-        const hCandle10 = makeCandle();
-        const hCandle15 = makeCandle();
-        const historicalTicks = [];
-        const historicalC5s = [];
-        const historicalC10s = [];
-        const historicalC15s = [];
-
         for (const t of history) {
             tickStore.addTick(t.epoch, t.quote);
             tickCount++;
-
-            // Tick line points
-            historicalTicks.push({ time: t.epoch, value: t.quote });
-
-            // 5s candles
-            updateCandle(hCandle5, t.quote, t.epoch);
-            if (hCandle5.ticksIn >= 5) {
-                historicalC5s.push(candlePayload(hCandle5));
-                resetCandle(hCandle5, t.quote, t.epoch);
-            }
-
-            // 10s candles
-            updateCandle(hCandle10, t.quote, t.epoch);
-            if (hCandle10.ticksIn >= 10) {
-                historicalC10s.push(candlePayload(hCandle10));
-                resetCandle(hCandle10, t.quote, t.epoch);
-            }
-
-            // 15s candles
-            updateCandle(hCandle15, t.quote, t.epoch);
-            if (hCandle15.ticksIn >= 15) {
-                historicalC15s.push(candlePayload(hCandle15));
-                resetCandle(hCandle15, t.quote, t.epoch);
-            }
         }
-
-        // Run vol engine on historical data
         volEngine.update();
-
-        // Store for sending to late-joining clients
-        historySnapshot = { historicalTicks, historicalC5s, historicalC10s, historicalC15s };
-        console.log(`[System] History ready: ${historicalTicks.length} ticks, ${historicalC5s.length} 5s candles, ${historicalC15s.length} 15s candles`);
+        const candles = makeHistoryCandles(history);
+        historySnapshot = {
+            historicalTicks: history.map(t => ({ time: t.epoch, value: t.quote })),
+            historicalC5s: candles['5s'],
+            historicalC10s: candles['10s'],
+            historicalC15s: candles['15s'],
+            historicalC30s: candles['30s'],
+            historicalC1m: candles['1m'],
+            historicalC2m: candles['2m'],
+            historicalC5m: candles['5m'],
+        };
+        console.log(`[System] History ready — ticks: ${history.length}, 5s: ${candles['5s'].length}, 15s: ${candles['15s'].length}, 1m: ${candles['1m'].length}`);
     }
-
-    // Step 2: Start live stream
     derivClient.connect();
 });
 
-
-
+// --- Live Tick Handler ---
 derivClient.on('tick', (tick) => {
     const price = tick.quote;
     const epoch = tick.epoch;
@@ -158,29 +171,27 @@ derivClient.on('tick', (tick) => {
 
     broadcast({ type: 'tick', data: { time: epoch, value: price } });
 
-    // 5s candle
-    updateCandle(candle5s, price, epoch);
-    if (candle5s.ticksIn >= 5) {
-        broadcast({ type: 'candle5s', data: candlePayload(candle5s) });
-        resetCandle(candle5s, price, epoch);
+    // Time-based candle processing
+    const closed = processTick(price, epoch);
+    for (const [label, candleData] of Object.entries(closed)) {
+        broadcast({ type: 'candle_closed', timeframe: label, data: candleData });
     }
 
-    // 10s candle
-    updateCandle(candle10s, price, epoch);
-    if (candle10s.ticksIn >= 10) {
-        broadcast({ type: 'candle10s', data: candlePayload(candle10s) });
-        resetCandle(candle10s, price, epoch);
+    // Broadcast countdown state for all timeframes
+    const now = epoch;
+    const countdowns = {};
+    for (const [label, secs] of Object.entries(TIMEFRAMES)) {
+        const c = activeCandles[label];
+        countdowns[label] = {
+            remaining: Math.max(0, c.closeTime - now),
+            total: secs,
+            pct: Math.max(0, (c.closeTime - now) / secs)
+        };
     }
-
-    // 15s candle
-    updateCandle(candle15s, price, epoch);
-    if (candle15s.ticksIn >= 15) {
-        broadcast({ type: 'candle15s', data: candlePayload(candle15s) });
-        resetCandle(candle15s, price, epoch);
-    }
+    broadcast({ type: 'countdown', data: countdowns });
 });
 
-// --- Analytics Broadcast (every 1s) ---
+// --- Analytics Broadcast ---
 setInterval(() => {
     const ticks = tickStore.getAll();
     if (ticks.length === 0) return;
