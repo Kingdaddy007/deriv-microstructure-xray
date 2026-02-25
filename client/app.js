@@ -29,6 +29,278 @@ const CANDLE_OPTS = { upColor: '#3fb950', downColor: '#f85149', borderVisible: f
 
 
 /* ================================================================
+   DRAWING MANAGER (v2 — Senior Review Fix)
+   ================================================================
+   KEY FIX: uses series.priceToCoordinate() not chart.priceToCoordinate()
+   LightweightCharts coordinate conversion is on the SERIES object.
+   The canvas only captures mouse events when a tool is active.
+   ================================================================ */
+
+class DrawingManager {
+    constructor(chartObj, seriesObj, containerId) {
+        this.chart = chartObj;
+        this.series = seriesObj;  // CRITICAL: coordinate APIs are on the series
+        this.container = $(containerId);
+        if (!this.chart || !this.series || !this.container) return;
+
+        // Create canvas
+        this.canvas = document.createElement('canvas');
+        this.canvas.className = 'drawing-canvas';
+        this.container.appendChild(this.canvas);
+        this.ctx = this.canvas.getContext('2d');
+
+        this.drawings = [];
+        this.selectedIdx = -1;
+        this.activeTool = 'none';
+        this.drawColor = '#f59e0b';
+        this._drafting = false;
+        this._points = [];
+        this._mousePos = null;
+
+        this._resize();
+        new ResizeObserver(() => this._resize()).observe(this.container);
+
+        // Mouse events on canvas
+        this.canvas.addEventListener('mousedown', e => this._onDown(e));
+        this.canvas.addEventListener('mousemove', e => this._onMove(e));
+        this.canvas.addEventListener('dblclick', () => { this._drafting = false; this._points = []; });
+
+        // Render loop
+        const render = () => { this._render(); requestAnimationFrame(render); };
+        requestAnimationFrame(render);
+    }
+
+    setTool(tool) {
+        this.activeTool = tool;
+        this.canvas?.classList.toggle('drawing-active', tool !== 'none');
+        this._drafting = false;
+        this._points = [];
+    }
+
+    setColor(c) { this.drawColor = c; }
+
+    deleteSelected() {
+        if (this.selectedIdx >= 0 && this.selectedIdx < this.drawings.length) {
+            this.drawings.splice(this.selectedIdx, 1);
+            this.selectedIdx = -1;
+        }
+    }
+
+    _resize() {
+        if (!this.canvas || !this.container) return;
+        this.canvas.width = this.container.clientWidth;
+        this.canvas.height = this.container.clientHeight;
+    }
+
+    // ── Coordinate conversion (uses SERIES, not chart) ──
+    _toPx(time, price) {
+        try {
+            const x = this.chart.timeScale().timeToCoordinate(time);
+            const y = this.series.priceToCoordinate(price);
+            if (x == null || y == null) return null;
+            return { x, y };
+        } catch { return null; }
+    }
+
+    _fromPx(canvasX, canvasY) {
+        try {
+            const time = this.chart.timeScale().coordinateToTime(canvasX);
+            const price = this.series.coordinateToPrice(canvasY);
+            if (time == null || price == null) return null;
+            return { time, price };
+        } catch { return null; }
+    }
+
+    _canvasXY(e) {
+        const r = this.canvas.getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top };
+    }
+
+    // ── Mouse handlers ──
+    _onDown(e) {
+        if (this.activeTool === 'none') return;
+        const pos = this._canvasXY(e);
+        const pt = this._fromPx(pos.x, pos.y);
+        if (!pt) return;
+
+        // Single-click tools
+        if (this.activeTool === 'hline') {
+            this.drawings.push({ type: 'hline', price: pt.price, color: this.drawColor });
+            return;
+        }
+        if (this.activeTool === 'vline') {
+            this.drawings.push({ type: 'vline', time: pt.time, color: this.drawColor });
+            return;
+        }
+        if (this.activeTool === 'text') {
+            this._placeText(pos, pt);
+            return;
+        }
+
+        // Multi-click tools
+        if (['trendline', 'ray', 'rectangle', 'fib'].includes(this.activeTool)) {
+            if (!this._drafting) {
+                this._drafting = true;
+                this._points = [pt];
+            } else {
+                this._points.push(pt);
+                this.drawings.push({ type: this.activeTool, pts: [...this._points], color: this.drawColor });
+                this._drafting = false;
+                this._points = [];
+            }
+            return;
+        }
+
+        if (this.activeTool === 'triangle') {
+            this._points.push(pt);
+            this._drafting = true;
+            if (this._points.length === 3) {
+                this.drawings.push({ type: 'triangle', pts: [...this._points], color: this.drawColor });
+                this._drafting = false;
+                this._points = [];
+            }
+        }
+    }
+
+    _onMove(e) {
+        if (this._drafting) this._mousePos = this._canvasXY(e);
+    }
+
+    _placeText(canvasPos, chartPt) {
+        const overlay = $('textInputOverlay');
+        const input = $('textInputField');
+        if (!overlay || !input) return;
+        const rect = this.container.getBoundingClientRect();
+        overlay.style.display = 'block';
+        overlay.style.left = (rect.left + canvasPos.x) + 'px';
+        overlay.style.top = (rect.top + canvasPos.y) + 'px';
+        input.value = '';
+        input.focus();
+        const done = (ev) => {
+            if (ev.key === 'Enter' || ev.type === 'blur') {
+                const txt = input.value.trim();
+                if (txt) this.drawings.push({ type: 'text', text: txt, time: chartPt.time, price: chartPt.price, color: this.drawColor });
+                overlay.style.display = 'none';
+                input.removeEventListener('keydown', done);
+                input.removeEventListener('blur', done);
+            }
+        };
+        input.addEventListener('keydown', done);
+        input.addEventListener('blur', done);
+    }
+
+    // ── Render ──
+    _render() {
+        const ctx = this.ctx;
+        if (!ctx) return;
+        const W = this.canvas.width, H = this.canvas.height;
+        ctx.clearRect(0, 0, W, H);
+
+        for (let i = 0; i < this.drawings.length; i++) {
+            const d = this.drawings[i];
+            ctx.save();
+            ctx.strokeStyle = d.color;
+            ctx.fillStyle = d.color;
+            ctx.lineWidth = i === this.selectedIdx ? 2.5 : 1.5;
+            ctx.font = '12px Inter, sans-serif';
+
+            switch (d.type) {
+                case 'hline': {
+                    const y = this.series.priceToCoordinate(d.price);
+                    if (y == null) break;
+                    ctx.setLineDash([5, 4]);
+                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillText(d.price.toFixed(2), 4, y - 4);
+                    break;
+                }
+                case 'vline': {
+                    const x = this.chart.timeScale().timeToCoordinate(d.time);
+                    if (x == null) break;
+                    ctx.setLineDash([5, 4]);
+                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+                    ctx.setLineDash([]);
+                    break;
+                }
+                case 'trendline':
+                case 'ray': {
+                    const p0 = this._toPx(d.pts[0].time, d.pts[0].price);
+                    const p1 = this._toPx(d.pts[1].time, d.pts[1].price);
+                    if (!p0 || !p1) break;
+                    let ex = p1.x, ey = p1.y;
+                    if (d.type === 'ray') {
+                        const dx = p1.x - p0.x, dy = p1.y - p0.y;
+                        if (Math.abs(dx) > 0.01) { const t = (W - p0.x) / dx; ex = W; ey = p0.y + dy * t; }
+                    }
+                    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(ex, ey); ctx.stroke();
+                    break;
+                }
+                case 'rectangle': {
+                    const p0 = this._toPx(d.pts[0].time, d.pts[0].price);
+                    const p1 = this._toPx(d.pts[1].time, d.pts[1].price);
+                    if (!p0 || !p1) break;
+                    ctx.globalAlpha = 0.12;
+                    ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+                    ctx.globalAlpha = 1;
+                    ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
+                    break;
+                }
+                case 'triangle': {
+                    const pts = d.pts.map(p => this._toPx(p.time, p.price));
+                    if (pts.some(p => !p)) break;
+                    ctx.globalAlpha = 0.1;
+                    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); ctx.lineTo(pts[1].x, pts[1].y); ctx.lineTo(pts[2].x, pts[2].y); ctx.closePath(); ctx.fill();
+                    ctx.globalAlpha = 1;
+                    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); ctx.lineTo(pts[1].x, pts[1].y); ctx.lineTo(pts[2].x, pts[2].y); ctx.closePath(); ctx.stroke();
+                    break;
+                }
+                case 'fib': {
+                    const p0 = this._toPx(d.pts[0].time, d.pts[0].price);
+                    const p1 = this._toPx(d.pts[1].time, d.pts[1].price);
+                    if (!p0 || !p1) break;
+                    const range = d.pts[0].price - d.pts[1].price;
+                    for (const lvl of [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]) {
+                        const price = d.pts[1].price + range * lvl;
+                        const y = this.series.priceToCoordinate(price);
+                        if (y == null) continue;
+                        ctx.globalAlpha = 0.6;
+                        ctx.setLineDash([4, 3]);
+                        ctx.beginPath(); ctx.moveTo(Math.min(p0.x, p1.x), y); ctx.lineTo(Math.max(p0.x, p1.x), y); ctx.stroke();
+                        ctx.setLineDash([]);
+                        ctx.globalAlpha = 1;
+                        ctx.fillText((lvl * 100).toFixed(1) + '%  ' + price.toFixed(2), Math.min(p0.x, p1.x) + 3, y - 4);
+                    }
+                    break;
+                }
+                case 'text': {
+                    const px = this._toPx(d.time, d.price);
+                    if (!px) break;
+                    ctx.fillText(d.text, px.x + 5, px.y - 5);
+                    ctx.beginPath(); ctx.arc(px.x, px.y, 3, 0, Math.PI * 2); ctx.fill();
+                    break;
+                }
+            }
+            ctx.restore();
+        }
+
+        // Draft preview line
+        if (this._drafting && this._points.length > 0 && this._mousePos) {
+            const last = this._points[this._points.length - 1];
+            const p0 = this._toPx(last.time, last.price);
+            if (p0) {
+                ctx.save();
+                ctx.strokeStyle = this.drawColor; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
+                ctx.setLineDash([4, 3]);
+                ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(this._mousePos.x, this._mousePos.y); ctx.stroke();
+                ctx.restore();
+            }
+        }
+    }
+}
+
+
+
+/* ================================================================
    LAZY CHART MANAGER
    Charts are NOT created at page load. They are created the first
    time their tab becomes visible. This avoids the 0×0 hidden-tab bug.
@@ -302,277 +574,6 @@ function syncConfig() {
 }
 $('barrierInput')?.addEventListener('input', syncConfig);
 $('roiInput')?.addEventListener('input', syncConfig);
-
-
-/* ================================================================
-   DRAWING MANAGER (v2 — Senior Review Fix)
-   ================================================================
-   KEY FIX: uses series.priceToCoordinate() not chart.priceToCoordinate()
-   LightweightCharts coordinate conversion is on the SERIES object.
-   The canvas only captures mouse events when a tool is active.
-   ================================================================ */
-
-class DrawingManager {
-    constructor(chartObj, seriesObj, containerId) {
-        this.chart = chartObj;
-        this.series = seriesObj;  // CRITICAL: coordinate APIs are on the series
-        this.container = $(containerId);
-        if (!this.chart || !this.series || !this.container) return;
-
-        // Create canvas
-        this.canvas = document.createElement('canvas');
-        this.canvas.className = 'drawing-canvas';
-        this.container.appendChild(this.canvas);
-        this.ctx = this.canvas.getContext('2d');
-
-        this.drawings = [];
-        this.selectedIdx = -1;
-        this.activeTool = 'none';
-        this.drawColor = '#f59e0b';
-        this._drafting = false;
-        this._points = [];
-        this._mousePos = null;
-
-        this._resize();
-        new ResizeObserver(() => this._resize()).observe(this.container);
-
-        // Mouse events on canvas
-        this.canvas.addEventListener('mousedown', e => this._onDown(e));
-        this.canvas.addEventListener('mousemove', e => this._onMove(e));
-        this.canvas.addEventListener('dblclick', () => { this._drafting = false; this._points = []; });
-
-        // Render loop
-        const render = () => { this._render(); requestAnimationFrame(render); };
-        requestAnimationFrame(render);
-    }
-
-    setTool(tool) {
-        this.activeTool = tool;
-        this.canvas?.classList.toggle('drawing-active', tool !== 'none');
-        this._drafting = false;
-        this._points = [];
-    }
-
-    setColor(c) { this.drawColor = c; }
-
-    deleteSelected() {
-        if (this.selectedIdx >= 0 && this.selectedIdx < this.drawings.length) {
-            this.drawings.splice(this.selectedIdx, 1);
-            this.selectedIdx = -1;
-        }
-    }
-
-    _resize() {
-        if (!this.canvas || !this.container) return;
-        this.canvas.width = this.container.clientWidth;
-        this.canvas.height = this.container.clientHeight;
-    }
-
-    // ── Coordinate conversion (uses SERIES, not chart) ──
-    _toPx(time, price) {
-        try {
-            const x = this.chart.timeScale().timeToCoordinate(time);
-            const y = this.series.priceToCoordinate(price);
-            if (x == null || y == null) return null;
-            return { x, y };
-        } catch { return null; }
-    }
-
-    _fromPx(canvasX, canvasY) {
-        try {
-            const time = this.chart.timeScale().coordinateToTime(canvasX);
-            const price = this.series.coordinateToPrice(canvasY);
-            if (time == null || price == null) return null;
-            return { time, price };
-        } catch { return null; }
-    }
-
-    _canvasXY(e) {
-        const r = this.canvas.getBoundingClientRect();
-        return { x: e.clientX - r.left, y: e.clientY - r.top };
-    }
-
-    // ── Mouse handlers ──
-    _onDown(e) {
-        if (this.activeTool === 'none') return;
-        const pos = this._canvasXY(e);
-        const pt = this._fromPx(pos.x, pos.y);
-        if (!pt) return;
-
-        // Single-click tools
-        if (this.activeTool === 'hline') {
-            this.drawings.push({ type: 'hline', price: pt.price, color: this.drawColor });
-            return;
-        }
-        if (this.activeTool === 'vline') {
-            this.drawings.push({ type: 'vline', time: pt.time, color: this.drawColor });
-            return;
-        }
-        if (this.activeTool === 'text') {
-            this._placeText(pos, pt);
-            return;
-        }
-
-        // Multi-click tools
-        if (['trendline', 'ray', 'rectangle', 'fib'].includes(this.activeTool)) {
-            if (!this._drafting) {
-                this._drafting = true;
-                this._points = [pt];
-            } else {
-                this._points.push(pt);
-                this.drawings.push({ type: this.activeTool, pts: [...this._points], color: this.drawColor });
-                this._drafting = false;
-                this._points = [];
-            }
-            return;
-        }
-
-        if (this.activeTool === 'triangle') {
-            this._points.push(pt);
-            this._drafting = true;
-            if (this._points.length === 3) {
-                this.drawings.push({ type: 'triangle', pts: [...this._points], color: this.drawColor });
-                this._drafting = false;
-                this._points = [];
-            }
-        }
-    }
-
-    _onMove(e) {
-        if (this._drafting) this._mousePos = this._canvasXY(e);
-    }
-
-    _placeText(canvasPos, chartPt) {
-        const overlay = $('textInputOverlay');
-        const input = $('textInputField');
-        if (!overlay || !input) return;
-        const rect = this.container.getBoundingClientRect();
-        overlay.style.display = 'block';
-        overlay.style.left = (rect.left + canvasPos.x) + 'px';
-        overlay.style.top = (rect.top + canvasPos.y) + 'px';
-        input.value = '';
-        input.focus();
-        const done = (ev) => {
-            if (ev.key === 'Enter' || ev.type === 'blur') {
-                const txt = input.value.trim();
-                if (txt) this.drawings.push({ type: 'text', text: txt, time: chartPt.time, price: chartPt.price, color: this.drawColor });
-                overlay.style.display = 'none';
-                input.removeEventListener('keydown', done);
-                input.removeEventListener('blur', done);
-            }
-        };
-        input.addEventListener('keydown', done);
-        input.addEventListener('blur', done);
-    }
-
-    // ── Render ──
-    _render() {
-        const ctx = this.ctx;
-        if (!ctx) return;
-        const W = this.canvas.width, H = this.canvas.height;
-        ctx.clearRect(0, 0, W, H);
-
-        for (let i = 0; i < this.drawings.length; i++) {
-            const d = this.drawings[i];
-            ctx.save();
-            ctx.strokeStyle = d.color;
-            ctx.fillStyle = d.color;
-            ctx.lineWidth = i === this.selectedIdx ? 2.5 : 1.5;
-            ctx.font = '12px Inter, sans-serif';
-
-            switch (d.type) {
-                case 'hline': {
-                    const y = this.series.priceToCoordinate(d.price);
-                    if (y == null) break;
-                    ctx.setLineDash([5, 4]);
-                    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-                    ctx.setLineDash([]);
-                    ctx.fillText(d.price.toFixed(2), 4, y - 4);
-                    break;
-                }
-                case 'vline': {
-                    const x = this.chart.timeScale().timeToCoordinate(d.time);
-                    if (x == null) break;
-                    ctx.setLineDash([5, 4]);
-                    ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-                    ctx.setLineDash([]);
-                    break;
-                }
-                case 'trendline':
-                case 'ray': {
-                    const p0 = this._toPx(d.pts[0].time, d.pts[0].price);
-                    const p1 = this._toPx(d.pts[1].time, d.pts[1].price);
-                    if (!p0 || !p1) break;
-                    let ex = p1.x, ey = p1.y;
-                    if (d.type === 'ray') {
-                        const dx = p1.x - p0.x, dy = p1.y - p0.y;
-                        if (Math.abs(dx) > 0.01) { const t = (W - p0.x) / dx; ex = W; ey = p0.y + dy * t; }
-                    }
-                    ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(ex, ey); ctx.stroke();
-                    break;
-                }
-                case 'rectangle': {
-                    const p0 = this._toPx(d.pts[0].time, d.pts[0].price);
-                    const p1 = this._toPx(d.pts[1].time, d.pts[1].price);
-                    if (!p0 || !p1) break;
-                    ctx.globalAlpha = 0.12;
-                    ctx.fillRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
-                    ctx.globalAlpha = 1;
-                    ctx.strokeRect(p0.x, p0.y, p1.x - p0.x, p1.y - p0.y);
-                    break;
-                }
-                case 'triangle': {
-                    const pts = d.pts.map(p => this._toPx(p.time, p.price));
-                    if (pts.some(p => !p)) break;
-                    ctx.globalAlpha = 0.1;
-                    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); ctx.lineTo(pts[1].x, pts[1].y); ctx.lineTo(pts[2].x, pts[2].y); ctx.closePath(); ctx.fill();
-                    ctx.globalAlpha = 1;
-                    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); ctx.lineTo(pts[1].x, pts[1].y); ctx.lineTo(pts[2].x, pts[2].y); ctx.closePath(); ctx.stroke();
-                    break;
-                }
-                case 'fib': {
-                    const p0 = this._toPx(d.pts[0].time, d.pts[0].price);
-                    const p1 = this._toPx(d.pts[1].time, d.pts[1].price);
-                    if (!p0 || !p1) break;
-                    const range = d.pts[0].price - d.pts[1].price;
-                    for (const lvl of [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1.0]) {
-                        const price = d.pts[1].price + range * lvl;
-                        const y = this.series.priceToCoordinate(price);
-                        if (y == null) continue;
-                        ctx.globalAlpha = 0.6;
-                        ctx.setLineDash([4, 3]);
-                        ctx.beginPath(); ctx.moveTo(Math.min(p0.x, p1.x), y); ctx.lineTo(Math.max(p0.x, p1.x), y); ctx.stroke();
-                        ctx.setLineDash([]);
-                        ctx.globalAlpha = 1;
-                        ctx.fillText((lvl * 100).toFixed(1) + '%  ' + price.toFixed(2), Math.min(p0.x, p1.x) + 3, y - 4);
-                    }
-                    break;
-                }
-                case 'text': {
-                    const px = this._toPx(d.time, d.price);
-                    if (!px) break;
-                    ctx.fillText(d.text, px.x + 5, px.y - 5);
-                    ctx.beginPath(); ctx.arc(px.x, px.y, 3, 0, Math.PI * 2); ctx.fill();
-                    break;
-                }
-            }
-            ctx.restore();
-        }
-
-        // Draft preview line
-        if (this._drafting && this._points.length > 0 && this._mousePos) {
-            const last = this._points[this._points.length - 1];
-            const p0 = this._toPx(last.time, last.price);
-            if (p0) {
-                ctx.save();
-                ctx.strokeStyle = this.drawColor; ctx.lineWidth = 1; ctx.globalAlpha = 0.5;
-                ctx.setLineDash([4, 3]);
-                ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(this._mousePos.x, this._mousePos.y); ctx.stroke();
-                ctx.restore();
-            }
-        }
-    }
-}
 
 
 /* ================================================================
