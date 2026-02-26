@@ -682,7 +682,13 @@ function activateTab(viewId) {
     allTabs.forEach(t => t.classList.toggle('active', t.dataset.view === viewId));
     allViews.forEach(v => v.classList.toggle('active', v.id === viewId));
 
-    // Lazy-init charts for this tab (runs only once per slot)
+    // Show/Hide the Reach Grid Config section in the sidebar based on active tab
+    const gridConfigPanel = $('reachGridConfigPanel');
+    if (gridConfigPanel) {
+        gridConfigPanel.style.display = (viewId === 'viewReachGrid') ? 'block' : 'none';
+    }
+
+    // Handle visible charts for this tab (runs only once per slot)
     const slotKeys = TAB_SLOTS[viewId] || [];
     requestAnimationFrame(() => {
         slotKeys.forEach(key => slots[key]?.init());
