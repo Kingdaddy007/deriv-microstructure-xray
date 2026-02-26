@@ -55,6 +55,15 @@ function makeHistoryCandles(ticks) {
             b.c = t.quote;
         }
     }
+
+    // Fix #1: Flush final in-progress historical candles
+    for (const [label] of Object.entries(TIMEFRAMES)) {
+        const b = builders[label];
+        if (b && b.o !== null) {
+            result[label].push({ time: b.openTime, open: b.o, high: b.h, low: b.l, close: b.c });
+        }
+    }
+
     return result;
 }
 

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Micro-Structure X-Ray</title>
-    <link rel="stylesheet" href="style.css?v=6">
+    <link rel="stylesheet" href="style.css?v=7">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
         rel="stylesheet">
@@ -35,9 +35,13 @@
 
             <div class="sidebar-section">
                 <label>Parameters</label>
-                <div class="toggle-group">
+                <div class="toggle-group" style="margin-bottom: 8px;">
                     <button class="toggle-btn active" id="btnUp">Touch ▲</button>
                     <button class="toggle-btn" id="btnDown">Touch ▼</button>
+                </div>
+                <div class="toggle-group" style="margin-bottom: 8px;">
+                    <button class="toggle-btn active" id="btnFloat" title="Barrier follows spot ± offset">Float</button>
+                    <button class="toggle-btn" id="btnFreeze" title="Lock barrier price at current spot">Freeze</button>
                 </div>
                 <div class="input-row">
                     <div class="input-group">
@@ -94,6 +98,20 @@
                 <div class="data-row"><span>State</span><span id="volTrend" class="mono">--</span></div>
                 <div class="data-row"><span>Momentum</span><span id="momentum" class="mono">--</span></div>
             </div>
+
+            <div class="sidebar-section">
+                <label>Reach Grid Config</label>
+                <div class="toggle-group" style="margin-bottom:8px">
+                    <button class="toggle-btn active" id="btnGridEither">Either</button>
+                    <button class="toggle-btn" id="btnGridUp" title="Up only">Up ▲</button>
+                    <button class="toggle-btn" id="btnGridDown" title="Down only">Down ▼</button>
+                </div>
+                <div class="toggle-group">
+                    <button class="toggle-btn" id="btnGrid10m" data-sec="600">10m</button>
+                    <button class="toggle-btn active" id="btnGrid30m" data-sec="1800">30m</button>
+                    <button class="toggle-btn" id="btnGrid2h" data-sec="7200">2h</button>
+                </div>
+            </div>
         </aside>
 
         <!-- ═══════════════ CHART AREA ═══════════════ -->
@@ -108,7 +126,8 @@
                 <button class="tab" data-view="view30s">30s</button>
                 <button class="tab" data-view="view1m">1m</button>
                 <button class="tab" data-view="view5m">5m</button>
-                <button class="tab" data-view="viewGrid">Grid</button>
+                <button class="tab" data-view="viewReachGrid">Grid Map</button>
+                <button class="tab" data-view="viewGrid">Split</button>
             </div>
 
             <!-- Drawing Toolbar -->
@@ -244,6 +263,21 @@
                 </div>
             </div>
 
+            <!-- Reach Grid (Heatmap) View -->
+            <div id="viewReachGrid" class="chart-view">
+                <div class="reach-grid-container" style="padding: 24px; color: var(--text);">
+                    <h2 style="margin-top:0; font-weight:600; font-size:1.2rem; margin-bottom: 8px;">Barrier
+                        Reachability Map</h2>
+                    <div id="reachGridWarning"
+                        style="color: #ffcc00; font-size: 0.85rem; margin-bottom:16px; min-height:16px;"></div>
+                    <div style="overflow-x: auto;">
+                        <table id="reachGridTable" class="reach-table">
+                            <!-- Populated dynamically by JS -->
+                        </table>
+                    </div>
+                </div>
+            </div>
+
         </main>
     </div>
 
@@ -268,7 +302,16 @@
         <input type="text" id="textInputField" placeholder="Type comment, Enter to place">
     </div>
 
-    <script src="app.js?v=6"></script>
+    <script>
+        // Error catcher — displays any JS crash visibly on page
+        window.onerror = function (msg, url, line, col, err) {
+            var d = document.createElement('div');
+            d.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#f85149;color:#fff;padding:12px 20px;font-family:monospace;font-size:14px;white-space:pre-wrap;';
+            d.textContent = '⚠ JS ERROR: ' + msg + '\nFile: ' + url + ' Line: ' + line + ':' + col + '\n' + (err && err.stack ? err.stack : '');
+            document.body.appendChild(d);
+        };
+    </script>
+    <script src="app.js?v=10"></script>
 </body>
 
 </html>

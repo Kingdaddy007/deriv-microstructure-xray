@@ -671,3 +671,101 @@ body {
 .sys-btn svg {
     margin-bottom: 1px;
 }
+
+/* ── Reach Grid Specifics ── */
+.reach-grid-container {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+}
+
+.reach-table {
+    border-collapse: collapse;
+    width: 100%;
+    max-width: 600px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.85rem;
+}
+
+.reach-table th,
+.reach-table td {
+    padding: 10px 12px;
+    text-align: center;
+    border: 1px solid var(--border);
+}
+
+.reach-table th {
+    background-color: var(--panel);
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.reach-table td.distance-col {
+    background-color: var(--panel);
+    font-weight: 600;
+    color: var(--text);
+}
+
+.reach-cell {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 500;
+    color: #fff;
+    transition: background-color 0.3s ease;
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+/* Heatmap Gradient Approximation */
+.bg-heat-0 {
+    background-color: #1a2332;
+    color: var(--text);
+    text-shadow: none;
+}
+
+/* Very cold / Baseline */
+.bg-heat-10 {
+    background-color: #243550;
+}
+
+.bg-heat-20 {
+    background-color: #2e476d;
+}
+
+.bg-heat-30 {
+    background-color: #385a8a;
+}
+
+.bg-heat-40 {
+    background-color: #4676af;
+}
+
+.bg-heat-50 {
+    background-color: #6393c6;
+}
+
+/* Neutral / Mid */
+.bg-heat-60 {
+    background-color: #8fb1d6;
+    color: #111;
+    text-shadow: none;
+}
+
+.bg-heat-70 {
+    background-color: #d1a85e;
+    color: #111;
+    text-shadow: none;
+}
+
+/* Getting warm */
+.bg-heat-80 {
+    background-color: #d68748;
+}
+
+.bg-heat-90 {
+    background-color: #d85d38;
+}
+
+.bg-heat-100 {
+    background-color: #da362a;
+}
+
+/* Very hot */

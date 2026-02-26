@@ -599,6 +599,9 @@ class ChartSlot {
 
         // Create drawing manager (needs series for coordinate conversion)
         this.drawing = new DrawingManager(this.chart, this.series, this.containerId);
+
+        // Ensure barrier line is added when tab is lazily initialised
+        updateBarrierLines();
     }
 
     setData(data) {
@@ -627,6 +630,15 @@ class ChartSlot {
     }
 }
 
+// ── Barrier State (must be declared before slots.tick.init() which calls updateBarrierLines) ──
+let barrierOffset = parseFloat($('barrierInput')?.value) || 2.0;
+let barrierDirection = 'up';
+let barrierMode = 'float'; // 'float' | 'freeze'
+let frozenBarrierPrice = null;
+let currentSpot = null;
+// Store price line references per slot key
+const barrierLines = {};
+
 // ── Chart Slots ───────────────────────────────────────────────────
 const slots = {
     tick: new ChartSlot('tickChart', 'line'),
@@ -653,6 +665,7 @@ const TAB_SLOTS = {
     view1m: ['1m'],
     view5m: ['5m'],
     viewGrid: ['gridL', 'gridR'],
+    viewReachGrid: [] // No chart slots for the heatmap view
 };
 
 // Candle data buffers per TF (for grid panel switching)
@@ -660,12 +673,6 @@ const candleBuf = { '5s': [], '10s': [], '15s': [], '30s': [], '1m': [], '2m': [
 // Tick data buffer (for grid panels showing tick chart)
 let tickBuf = [];
 
-// ── Barrier State ─────────────────────────────────────────────────
-let barrierOffset = parseFloat($('barrierInput')?.value) || 2.0;
-let barrierDirection = 'up';
-let currentSpot = null;
-// Store price line references per slot key
-const barrierLines = {};
 
 // ── Tab Switching ─────────────────────────────────────────────────
 const allTabs = document.querySelectorAll('.tab');
@@ -837,8 +844,13 @@ $('gridRightTf')?.addEventListener('change', () => rebuildGridPanel('right'));
 function pushCandle(tf, candle) {
     if (!candleBuf[tf]) return;
     const buf = candleBuf[tf];
-    if (buf.length > 0 && buf[buf.length - 1].time === candle.time) buf[buf.length - 1] = candle;
-    else buf.push(candle);
+    if (buf.length > 0 && buf[buf.length - 1].time === candle.time) {
+        buf[buf.length - 1] = candle;
+    } else {
+        buf.push(candle);
+        // Cap candle buffer to maximum 2000 items to prevent RAM bloat
+        if (buf.length > 2000) buf.shift();
+    }
 
     // Update main chart for this TF
     slots[tf]?.update(candle);
@@ -881,10 +893,11 @@ function updateCountdowns(data) {
 }
 
 // ── WebSocket ─────────────────────────────────────────────────────
-const ws = new WebSocket(`ws://${location.host}`);
+const wsUrl = `ws://${window.location.hostname}:${window.location.port || 8080}`;
+const ws = new WebSocket(wsUrl);
 ws.onopen = () => setText('symbolBadge', 'CONNECTED');
 ws.onclose = () => { setText('symbolBadge', 'DISCONNECTED'); setTimeout(() => location.reload(), 3000); };
-ws.onerror = () => setText('symbolBadge', 'ERROR');
+ws.onerror = (err) => { console.error('[WS Error]', err); setText('symbolBadge', 'ERROR'); };
 
 ws.onmessage = (event) => {
     try {
@@ -895,8 +908,9 @@ ws.onmessage = (event) => {
             case 'tick': {
                 slots.tick.update(msg.data);
                 window.lastKnownEpoch = msg.data.time;
-                // Buffer tick for grid panels
+                // Buffer tick for grid panels (capped at 7200 to prevent RAM bloat)
                 tickBuf.push(msg.data);
+                if (tickBuf.length > 7200) tickBuf.shift();
                 // Also push tick to any grid panels showing the tick chart
                 if (getGridTf('left') === 'tick') slots.gridL?.update(msg.data);
                 if (getGridTf('right') === 'tick') slots.gridR?.update(msg.data);
@@ -910,6 +924,7 @@ ws.onmessage = (event) => {
             case 'candle_update': updateLiveCandle(msg.timeframe, msg.data); break;
             case 'analytics': handleAnalytics(msg.data); break;
             case 'history': loadHistory(msg.data); break;
+            case 'reach_grid': handleReachGrid(msg.data); break;
         }
     } catch (e) { console.error('[WS]', e); }
 };
@@ -993,9 +1008,14 @@ function removeBarrierFromSlot(slotKey, slot) {
 function updateBarrierLines() {
     if (currentSpot == null) return;
 
-    const barrierPrice = barrierDirection === 'up'
-        ? currentSpot + barrierOffset
-        : currentSpot - barrierOffset;
+    let barrierPrice;
+    if (barrierMode === 'freeze' && frozenBarrierPrice !== null) {
+        barrierPrice = frozenBarrierPrice;
+    } else {
+        barrierPrice = barrierDirection === 'up'
+            ? currentSpot + barrierOffset
+            : currentSpot - barrierOffset;
+    }
 
     // Update on all main chart slots
     const mainSlots = ['tick', '5s', '10s', '15s', '30s', '1m', '5m'];
@@ -1017,32 +1037,70 @@ function setDirection(dir) {
     const btnDown = $('btnDown');
     if (btnUp) btnUp.classList.toggle('active', dir === 'up');
     if (btnDown) btnDown.classList.toggle('active', dir === 'down');
+
+    // Auto-unfreeze if direction changes
+    if (barrierMode === 'freeze') {
+        setBarrierMode('float');
+    } else {
+        updateBarrierLines();
+    }
+}
+
+function setBarrierMode(mode) {
+    barrierMode = mode;
+    $('btnFloat')?.classList.toggle('active', mode === 'float');
+    $('btnFreeze')?.classList.toggle('active', mode === 'freeze');
+
+    if (mode === 'freeze') {
+        if (currentSpot != null) {
+            frozenBarrierPrice = barrierDirection === 'up'
+                ? currentSpot + barrierOffset
+                : currentSpot - barrierOffset;
+        }
+    } else {
+        frozenBarrierPrice = null;
+    }
     updateBarrierLines();
 }
 
 // ── Sidebar Barrier Controls ─────────────────────────────────────
+let dbt;
+function syncConfig() {
+    clearTimeout(dbt);
+    dbt = setTimeout(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+            type: 'update_config',
+            barrier: parseFloat($('barrierInput')?.value ?? 2),
+            payoutROI: parseFloat($('roiInput')?.value ?? 109),
+            direction: $('btnUp')?.classList.contains('active') ? 'up' : 'down'
+        }));
+    }, 500);
+}
+
 $('barrierInput')?.addEventListener('input', (e) => {
-    barrierOffset = parseFloat(e.target.value) || 0;
-    updateBarrierLines();
-    // Notify server of config change
-    if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'update_config', barrier: barrierOffset }));
+    const val = parseFloat(e.target.value);
+    if (Number.isFinite(val)) {
+        barrierOffset = val;
+        updateBarrierLines();
+        syncConfig();
     }
 });
 
+$('roiInput')?.addEventListener('input', syncConfig);
+
 $('btnUp')?.addEventListener('click', () => {
     setDirection('up');
-    if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'update_config', direction: 'up' }));
-    }
+    syncConfig();
 });
 
 $('btnDown')?.addEventListener('click', () => {
     setDirection('down');
-    if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'update_config', direction: 'down' }));
-    }
+    syncConfig();
 });
+
+$('btnFloat')?.addEventListener('click', () => setBarrierMode('float'));
+$('btnFreeze')?.addEventListener('click', () => setBarrierMode('freeze'));
 
 // ── Theme Toggle ──────────────────────────────────────────────────
 let isLightMode = false;
@@ -1063,6 +1121,68 @@ $('themeToggle')?.addEventListener('click', () => {
         if (slot.chart) slot.chart.applyOptions(newOptions);
     });
 });
+
+// ── Reach Grid UI Sync ────────────────────────────────────────────
+function sendGridConfig(update) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'update_grid_config', ...update }));
+    }
+}
+['btnGridEither', 'btnGridUp', 'btnGridDown'].forEach(id => {
+    $(id)?.addEventListener('click', (e) => {
+        ['btnGridEither', 'btnGridUp', 'btnGridDown'].forEach(b => $(b)?.classList.remove('active'));
+        e.target.classList.add('active');
+        sendGridConfig({ mode: id.replace('btnGrid', '').toLowerCase() });
+    });
+});
+['btnGrid10m', 'btnGrid30m', 'btnGrid2h'].forEach(id => {
+    $(id)?.addEventListener('click', (e) => {
+        ['btnGrid10m', 'btnGrid30m', 'btnGrid2h'].forEach(b => $(b)?.classList.remove('active'));
+        e.target.classList.add('active');
+        sendGridConfig({ lookbackSec: parseInt(e.target.dataset.sec) });
+    });
+});
+
+function handleReachGrid(data) {
+    const table = $('reachGridTable');
+    if (!table) return;
+
+    const { matrix, distances, horizons, mode, samplesPerHorizon } = data;
+
+    // Sample warning
+    const minSamples = Math.min(...Object.values(samplesPerHorizon));
+    const warningEl = $('reachGridWarning');
+    if (minSamples < 10) {
+        warningEl.textContent = `⚠️ Low sample size (${minSamples} windows). Consider extending Lookback.`;
+    } else {
+        warningEl.textContent = `Sample size: ${minSamples} windows evaluated | Updated: ${new Date(data.timestamp * 1000).toLocaleTimeString()}`;
+        warningEl.style.color = 'var(--muted)';
+    }
+
+    let html = '<thead><tr><th>Dist</th>';
+    horizons.forEach(h => html += `<th>${h}s</th>`);
+    html += '</tr></thead><tbody>';
+
+    distances.forEach((d, rIdx) => {
+        html += `<tr><td class="distance-col">${d.toFixed(1)}</td>`;
+        horizons.forEach((h, cIdx) => {
+            const cellData = matrix[rIdx][cIdx];
+            const rate = cellData[mode]; // decimal 0.0 to 1.0
+            const pct = Math.round(rate * 100);
+
+            // Map percentage to heat class (10 steps)
+            const heatStep = Math.round(pct / 10) * 10;
+
+            let displayVal = `${pct}%`;
+            if (pct === 100) displayVal = '100'; // Make it fit better visually if 100
+
+            html += `<td class="reach-cell bg-heat-${heatStep}">${displayVal}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody>';
+    table.innerHTML = html;
+}
 
 function handleAnalytics(d) {
     const a = d.active;
@@ -1107,22 +1227,9 @@ function handleAnalytics(d) {
 function pct(v) { return (v * 100).toFixed(1) + '%'; }
 
 // ── Controls ──────────────────────────────────────────────────────
-function setDirection(dir) {
-    $('btnUp')?.classList.toggle('active', dir === 'up');
-    $('btnDown')?.classList.toggle('active', dir === 'down');
-}
-$('btnUp')?.addEventListener('click', () => { setDirection('up'); syncConfig(); });
-$('btnDown')?.addEventListener('click', () => { setDirection('down'); syncConfig(); });
-let dbt;
-function syncConfig() {
-    clearTimeout(dbt);
-    dbt = setTimeout(() => {
-        if (ws.readyState !== WebSocket.OPEN) return;
-        ws.send(JSON.stringify({ type: 'update_config', barrier: parseFloat($('barrierInput')?.value ?? 2), payoutROI: parseFloat($('roiInput')?.value ?? 109), direction: $('btnUp')?.classList.contains('active') ? 'up' : 'down' }));
-    }, 500);
-}
-$('barrierInput')?.addEventListener('input', syncConfig);
-$('roiInput')?.addEventListener('input', syncConfig);
+// (Merged into Sidebar Barrier Controls section above)
+
+
 
 
 /* ================================================================

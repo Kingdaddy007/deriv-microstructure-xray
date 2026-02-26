@@ -19,6 +19,7 @@ const TickStore = require('./tickStore');
 const VolatilityEngine = require('./volatilityEngine');
 const ProbabilityEngine = require('./probabilityEngine');
 const EdgeCalculator = require('./edgeCalculator');
+const { computeReachGrid } = require('./reachGridEngine');
 
 const app = express();
 const server = http.createServer(app);
@@ -43,13 +44,17 @@ let serverStartTime = Date.now();
 let gapEvents = 0;
 let lastTickTime = null;
 
+// Reach Grid Default State
+let reachGridConfig = {
+    lookbackSec: 1800, // 30m default
+    stride: 10,
+    mode: 'either' // either, up, down
+};
+
 const { TIMEFRAMES, makeTCandle, updateTCandle, processTick, makeHistoryCandles } = require('./candleAggregator');
 
 // Active candles keyed by timeframe label
 const activeCandles = {};
-for (const [label, secs] of Object.entries(TIMEFRAMES)) {
-    activeCandles[label] = makeTCandle(secs, Math.floor(Date.now() / 1000));
-}
 
 // --- WebSocket ---
 wss.on('connection', (ws) => {
@@ -78,15 +83,22 @@ wss.on('connection', (ws) => {
         ws.send(JSON.stringify({ type: 'history', data: historySnapshot }));
     }
 
-    ws.on('message', (message) => {
+    ws.on('message', (msg) => {
         try {
-            const data = JSON.parse(message);
-            if (data.type === 'update_config') {
-                if (data.barrier != null) uiConfig.barrier = parseFloat(data.barrier);
-                if (data.payoutROI != null) uiConfig.payoutROI = parseFloat(data.payoutROI);
-                if (data.direction != null) uiConfig.direction = data.direction;
+            const packet = JSON.parse(msg);
+            if (packet.type === 'update_config') {
+                if (packet.barrier !== undefined) uiConfig.barrier = packet.barrier;
+                if (packet.roi !== undefined) uiConfig.payoutROI = packet.roi;
+                if (packet.direction) uiConfig.direction = packet.direction;
+                console.log(`[Config] Barrier: ${uiConfig.barrier}, ROI: ${uiConfig.payoutROI}, Dir: ${uiConfig.direction}`);
             }
-        } catch (e) { /* ignore */ }
+            if (packet.type === 'update_grid_config') {
+                if (packet.lookbackSec !== undefined) reachGridConfig.lookbackSec = packet.lookbackSec;
+                if (packet.stride !== undefined) reachGridConfig.stride = packet.stride;
+                if (packet.mode !== undefined) reachGridConfig.mode = packet.mode;
+                console.log(`[ReachGrid] Mode: ${reachGridConfig.mode}, Lookback: ${reachGridConfig.lookbackSec}s`);
+            }
+        } catch (e) { }
     });
 
     ws.on('close', () => console.log('[UI] Client disconnected'));
@@ -207,6 +219,32 @@ setInterval(() => {
     });
 }, config.DASHBOARD_UPDATE_INTERVAL);
 
-server.listen(config.PORT, () => {
-    console.log(`[System] Dashboard → http://localhost:${config.PORT}`);
+// --- Reach Grid Broadcast ---
+setInterval(() => {
+    const ticks = tickStore.getAll();
+    if (ticks.length === 0) return;
+
+    // CPU-friendly config 
+    const results = computeReachGrid(ticks, {
+        lookbackSec: reachGridConfig.lookbackSec,
+        stride: reachGridConfig.stride
+    });
+
+    broadcast({
+        type: 'reach_grid',
+        data: {
+            symbol: primarySymbol,
+            ...reachGridConfig, // mode, lookbackSec, stride
+            matrix: results.matrix,
+            samplesPerHorizon: results.samplesPerHorizon,
+            distances: results.distances,
+            horizons: results.horizons,
+            timestamp: Math.floor(Date.now() / 1000)
+        }
+    });
+
+}, 5000); // Strict 5-second interval as defined by spec
+
+server.listen(config.PORT, '0.0.0.0', () => {
+    console.log(`[System] Dashboard → http://localhost:${config.PORT} (IPv4)`);
 });

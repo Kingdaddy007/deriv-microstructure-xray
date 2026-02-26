@@ -79,7 +79,11 @@ describe('Candle Aggregator Logic', () => {
         // Bucket 2 (10005-10010): Ticks at 10006(102), 10008(90)
         // -> O:102, H:102, L:90, C:90
 
-        expect(history['5s'].length).toBe(2);
+        // Bucket 3 (10010-10015): Empty (skipped)
+        // Bucket 4 (10015-10020): Tick at 10015(110)
+        // -> O:110, H:110, L:110, C:110
+
+        expect(history['5s'].length).toBe(3);
 
         const c1 = history['5s'][0];
         expect(c1.time).toBe(10000);
@@ -95,12 +99,20 @@ describe('Candle Aggregator Logic', () => {
         expect(c2.low).toBe(90);
         expect(c2.close).toBe(90);
 
+        const c3 = history['5s'][2];
+        expect(c3.time).toBe(10015);
+        expect(c3.open).toBe(110);
+        expect(c3.close).toBe(110);
+
         // 10s buckets:
         // Bucket 1 (10000-10010): 100, 105, 102, 90
         // -> O:100, H:105, L:90, C:90
-        expect(history['10s'].length).toBe(1);
+        // Bucket 2 (10010-10020): 110
+        expect(history['10s'].length).toBe(2);
         expect(history['10s'][0].open).toBe(100);
         expect(history['10s'][0].close).toBe(90);
+        expect(history['10s'][1].open).toBe(110);
+        expect(history['10s'][1].close).toBe(110);
     });
 
 });
