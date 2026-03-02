@@ -16,10 +16,11 @@ function setText(id, v) { const e = $(id); if (e) e.textContent = v; }
 function setStyle(id, p, v) { const e = $(id); if (e) e.style[p] = v; }
 
 let lastPrice = 0;
+let currentSymbol = null;
 
 // ── Chart Theme ───────────────────────────────────────────────────
 const THEME = {
-    layout: { background: { color: '#0d1117' }, textColor: '#8b949e' },
+    layout: { background: { color: 'transparent' }, textColor: '#8b949e' },
     grid: { vertLines: { color: '#30363d' }, horzLines: { color: '#30363d' } },
     crosshair: { mode: 0 },   // 0 = Normal (allows free pan/scroll)
     timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#30363d', rightOffset: 5 },
@@ -548,6 +549,1029 @@ class DrawingManager {
 
 
 /* ================================================================
+   TIME BLOCK QUADRANT OVERLAY
+   ================================================================ */
+
+/* ================================================================
+   TIME BLOCK QUADRANT OVERLAY
+   ================================================================ */
+
+// ---------- Time extraction (seconds) ----------
+function getPointTimeSec(d) {
+    if (!d) return null;
+    const raw = d.time ?? d.timestamp ?? null;
+    if (raw == null) return null;
+    return raw > 1e12 ? Math.floor(raw / 1000) : Math.floor(raw);
+}
+
+// ---------- Price extraction (supports candles + ticks/line) ----------
+function getPointHighLow(d) {
+    if (!d) return null;
+
+    // Candles
+    if (typeof d.high === 'number' && typeof d.low === 'number') {
+        return { high: d.high, low: d.low };
+    }
+
+    // Tick/line points
+    if (typeof d.value === 'number') {
+        return { high: d.value, low: d.value };
+    }
+
+    // Fallbacks
+    if (typeof d.close === 'number') return { high: d.close, low: d.close };
+    if (typeof d.price === 'number') return { high: d.price, low: d.price };
+
+    return null;
+}
+
+// ---------- Binary search: first index i where time >= target ----------
+function lowerBoundTime(data, targetTimeSec) {
+    let lo = 0, hi = data.length;
+    while (lo < hi) {
+        const mid = (lo + hi) >> 1;
+        const t = getPointTimeSec(data[mid]);
+        if (t == null) { lo = mid + 1; continue; }
+        if (t < targetTimeSec) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo;
+}
+
+// ---------- Find main pane canvas (plot area) ----------
+function findMainPaneCanvas(plotEl) {
+    const canvases = plotEl.querySelectorAll('canvas');
+    if (!canvases.length) return null;
+
+    // Usually the pane canvas is the largest area canvas.
+    let best = null;
+    let bestArea = -1;
+    for (const c of canvases) {
+        const r = c.getBoundingClientRect();
+        const area = r.width * r.height;
+        if (area > bestArea) {
+            bestArea = area;
+            best = c;
+        }
+    }
+    return best;
+}
+
+/**
+ * Convert UTC boundary time -> X coordinate at BAR EDGE (not center)
+ * using: boundary time -> index -> logical edge.
+ *
+ * This is the "no drift / TradingView feel" mapping.
+ */
+function boundaryTimeToX_edge(timeScale, data, boundaryTimeSec) {
+    const n = data.length;
+    if (n < 2) return null;
+
+    const idx = lowerBoundTime(data, boundaryTimeSec);
+
+    // Prefer logicalToCoordinate because it's truly ordinal/bar-based.
+    if (typeof timeScale.logicalToCoordinate === 'function') {
+        const xInt = timeScale.logicalToCoordinate(Math.floor(idx));
+        const xHalf = timeScale.logicalToCoordinate(idx - 0.5);
+        if (xHalf != null && !Number.isNaN(xHalf) && xHalf !== 0) return xHalf;
+        if (xInt != null && !Number.isNaN(xInt)) return xInt;
+    }
+
+    // Fallback: midpoint between neighboring bar centers using timeToCoordinate
+    const centerX = (i) => {
+        const t = getPointTimeSec(data[i]);
+        if (t == null) return null;
+        return timeScale.timeToCoordinate(t);
+    };
+
+    if (idx <= 0) {
+        const x0 = centerX(0);
+        const x1 = centerX(1);
+        if (x0 == null) return null;
+        const spacing = (x1 != null) ? (x1 - x0) : 10;
+        return x0 - spacing / 2;
+    }
+
+    if (idx >= n) {
+        const xN = centerX(n - 1);
+        const xP = centerX(n - 2);
+        if (xN == null) return null;
+        const spacing = (xP != null) ? (xN - xP) : 10;
+        return xN + spacing / 2;
+    }
+
+    const xL = centerX(idx - 1);
+    const xR = centerX(idx);
+    if (xL == null || xR == null) return null;
+    return (xL + xR) / 2;
+}
+
+class TimeBlockOverlay {
+    /**
+     * @param {Object} cfg
+     * @param {HTMLElement} cfg.slotContainerEl  - outer slot container (contains .tv-chart)
+     * @param {HTMLElement} cfg.plotEl           - the exact element passed to createChart (e.g. .tv-chart)
+     * @param {Object} cfg.chart                - Lightweight chart instance
+     * @param {Object} cfg.series               - Series used for priceToCoordinate
+     * @param {() => Array} cfg.getData         - returns the SAME array used to setData/update the series
+     * @param {number} cfg.intervalSec          - chart timeframe seconds (tick chart can set 1)
+     */
+    constructor(cfg) {
+        this.slotContainerEl = cfg.slotContainerEl;
+        this.plotEl = cfg.plotEl;
+        this.chart = cfg.chart;
+        this.series = cfg.series;
+        this.getData = cfg.getData;
+        this.intervalSec = cfg.intervalSec;
+
+        // Defaults requested by you:
+        // tick/5/10/15/30 => 5m ON; 15m OFF
+        // 30s/1m => 15m ON; 5m OFF
+        // 5m => both OFF
+        this.enabled5m = false;
+        this.enabled15m = false;
+        this._setDefaults();
+
+        this.debugMode = false;
+
+        // Overlay canvas
+        this.canvas = document.createElement('canvas');
+        this.canvas.className = 'timeblock-canvas';
+        this.canvas.style.pointerEvents = 'none';
+        this.canvas.style.zIndex = '8';
+        this.canvas.style.position = 'absolute';
+        this.slotContainerEl.style.position = 'relative'; // ensure container is relative
+        this.slotContainerEl.appendChild(this.canvas);
+        this.ctx = this.canvas.getContext('2d');
+
+        // Optional toggles
+        this._createToggles();
+
+        // Pane geometry
+        this.dpr = window.devicePixelRatio || 1;
+        this.paneRect = { left: 0, top: 0, width: 0, height: 0 };
+
+        // Render scheduling
+        this._pending = false;
+
+        // Resize / pan / zoom subscriptions
+        this._ro = new ResizeObserver(() => {
+            this._syncToPane();
+            this.requestRender();
+        });
+        this._ro.observe(this.slotContainerEl);
+
+        // Subscribe to chart changes (pan/zoom)
+        const ts = this.chart.timeScale();
+        if (ts.subscribeVisibleLogicalRangeChange) {
+            ts.subscribeVisibleLogicalRangeChange(() => this.requestRender());
+        }
+        if (ts.subscribeVisibleTimeRangeChange) {
+            ts.subscribeVisibleTimeRangeChange(() => this.requestRender());
+        }
+        if (ts.subscribeSizeChange) {
+            ts.subscribeSizeChange(() => {
+                this._syncToPane();
+                this.requestRender();
+            });
+        }
+
+        // Initial sync + draw
+        this._syncToPane();
+        this.requestRender();
+    }
+
+    _setDefaults() {
+        // Map to your desired defaults
+        // tick chart: intervalSec can be 1 (or special)
+        if (this.intervalSec === 300) { // 5m chart
+            this.enabled5m = false;
+            this.enabled15m = false;
+            return;
+        }
+
+        if (this.intervalSec === 60 || this.intervalSec === 30) {
+            // 30s / 1m: 15m ON, 5m OFF
+            this.enabled15m = true;
+            this.enabled5m = false;
+            return;
+        }
+
+        // tick/5s/10s/15s/30s: 5m ON, 15m OFF
+        // (you said 30s priority is 15m; we already handled intervalSec===30 above)
+        this.enabled5m = true;
+        this.enabled15m = false;
+    }
+
+    destroy() {
+        try { this._ro?.disconnect(); } catch { }
+        try { this.canvas?.remove(); } catch { }
+        try { this.togglesWrap?.remove(); } catch { }
+    }
+
+    setDebug(on) {
+        this.debugMode = !!on;
+        this.requestRender();
+    }
+
+    requestRender() {
+        if (this._pending) return;
+        this._pending = true;
+        requestAnimationFrame(() => this._render());
+    }
+
+    /**
+     * IMPORTANT: call this after series.setData() and series.update()
+     * so the overlay updates immediately with live candles/ticks.
+     */
+    onDataUpdated() {
+        this.requestRender();
+    }
+
+    _createToggles() {
+        const wrap = document.createElement('div');
+        wrap.className = 'timeblock-toggles';
+        wrap.style.position = 'absolute';
+        wrap.style.top = '6px';
+        wrap.style.right = '10px';
+        wrap.style.zIndex = '9';
+        wrap.style.display = 'flex';
+        wrap.style.gap = '6px';
+        wrap.style.pointerEvents = 'auto';
+
+        const mkBtn = (label, getter, setter, activeClass) => {
+            const b = document.createElement('button');
+            b.className = 'tb-btn';
+            b.style.font = '12px Inter, system-ui, sans-serif';
+            b.style.padding = '4px 8px';
+            b.style.borderRadius = '6px';
+            b.style.border = '1px solid rgba(255,255,255,.15)';
+            b.style.background = 'rgba(0,0,0,.35)';
+            b.style.color = 'rgba(255,255,255,.85)';
+            b.style.cursor = 'pointer';
+            b.textContent = label;
+
+            const sync = () => {
+                b.style.borderColor = 'rgba(255,255,255,.15)';
+                if (getter()) {
+                    if (activeClass === 'active-5m') b.style.borderColor = 'rgba(56,139,253,.55)';
+                    if (activeClass === 'active-15m') b.style.borderColor = 'rgba(245,158,11,.65)';
+                }
+            };
+            sync();
+
+            b.onclick = (e) => {
+                e.stopPropagation();
+                setter(!getter());
+                sync();
+                this.requestRender();
+            };
+            return b;
+        };
+
+        const btn5 = mkBtn('5m', () => this.enabled5m, (v) => this.enabled5m = v, 'active-5m');
+        const btn15 = mkBtn('15m', () => this.enabled15m, (v) => this.enabled15m = v, 'active-15m');
+
+        wrap.appendChild(btn5);
+        wrap.appendChild(btn15);
+        this.slotContainerEl.appendChild(wrap);
+        this.togglesWrap = wrap;
+    }
+
+    _syncToPane() {
+        // Find the pane canvas inside plotEl (the element used by createChart)
+        const paneCanvas = findMainPaneCanvas(this.plotEl);
+        if (!paneCanvas) return;
+
+        const hostRect = this.slotContainerEl.getBoundingClientRect();
+        const paneRect = paneCanvas.getBoundingClientRect();
+
+        const left = Math.round(paneRect.left - hostRect.left);
+        const top = Math.round(paneRect.top - hostRect.top);
+        const width = Math.round(paneRect.width);
+        const height = Math.round(paneRect.height);
+
+        this.paneRect = { left, top, width, height };
+
+        // Position overlay canvas over pane only
+        this.canvas.style.left = `${left}px`;
+        this.canvas.style.top = `${top}px`;
+        this.canvas.style.width = `${width}px`;
+        this.canvas.style.height = `${height}px`;
+
+        // DPR scaling
+        this.dpr = window.devicePixelRatio || 1;
+        const bw = Math.max(1, Math.round(width * this.dpr));
+        const bh = Math.max(1, Math.round(height * this.dpr));
+        if (this.canvas.width !== bw) this.canvas.width = bw;
+        if (this.canvas.height !== bh) this.canvas.height = bh;
+
+        // Draw in CSS pixels (so LWC coords match)
+        this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    }
+
+    _render() {
+        this._pending = false;
+
+        // resync every render (LWC can rebuild internal canvases)
+        this._syncToPane();
+
+        const W = this.paneRect.width;
+        const H = this.paneRect.height;
+        if (W <= 0 || H <= 0) return;
+
+        this.ctx.clearRect(0, 0, W, H);
+
+        // Removed debug magenta background
+
+        if (!this.enabled5m && !this.enabled15m) return;
+
+        const data = this.getData?.() || [];
+        if (data.length < 2) return;
+
+        this._logs = [];
+        this._logs.push(`Data Length: ${data.length}`);
+        const last = data[data.length - 1];
+        const ltSec = getPointTimeSec(last);
+        this._logs.push(`last.time: ${last.time}, ltSec: ${ltSec}`);
+
+        // Clip to pane
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(0, 0, W, H);
+        this.ctx.clip();
+
+        // Draw order: 15m behind, then 5m
+        if (this.enabled15m) this._drawBlocks(data, 900, {
+            // Distinct quadrant colors (amber border)
+            stripes: [
+                'rgba(248,81,73,0.08)',  // red
+                'rgba(88,166,255,0.08)', // blue
+                'rgba(63,185,80,0.08)',  // green
+                'rgba(163,113,247,0.08)',// purple
+            ],
+            border: 'rgba(240,185,11,0.3)',
+            borderCurrent: 'rgba(240,185,11,0.6)',
+            label: '15m',
+        });
+
+        if (this.enabled5m) this._drawBlocks(data, 300, {
+            // Distinct quadrant colors (blue border)
+            stripes: [
+                'rgba(248,81,73,0.08)',  // red
+                'rgba(88,166,255,0.08)', // blue
+                'rgba(63,185,80,0.08)',  // green
+                'rgba(163,113,247,0.08)',// purple
+            ],
+            border: 'rgba(56,139,253,0.3)',
+            borderCurrent: 'rgba(56,139,253,0.6)',
+            label: '5m',
+        });
+
+        this.ctx.restore();
+    }
+
+    _drawBlocks(data, blockSec, theme) {
+        const timeScale = this.chart.timeScale();
+        const series = this.series;
+
+        const lastT = getPointTimeSec(data[data.length - 1]);
+        if (lastT == null) {
+            this._logs.push(`[${blockSec}] lastT null`);
+            return;
+        }
+
+        // Last 1 hour
+        const cutoffT = lastT - 3600;
+        const sweepFromT = cutoffT - blockSec; // include overlap
+        const sweepFromIdx = Math.max(0, lowerBoundTime(data, sweepFromT));
+
+        this._logs.push(`[${blockSec}] svIdx=${sweepFromIdx} cutoff=${cutoffT} lastT=${lastT}`);
+
+        // Aggregate high/low per block (only last hour)
+        const agg = new Map(); // blockStart -> {min,max}
+        for (let i = sweepFromIdx; i < data.length; i++) {
+            const t = getPointTimeSec(data[i]);
+            if (t == null) continue;
+            const bStart = Math.floor(t / blockSec) * blockSec;
+            if (bStart < cutoffT) continue;
+
+            const hl = getPointHighLow(data[i]);
+            if (!hl) continue;
+
+            const cur = agg.get(bStart);
+            if (!cur) agg.set(bStart, { min: hl.low, max: hl.high });
+            else {
+                if (hl.high > cur.max) cur.max = hl.high;
+                if (hl.low < cur.min) cur.min = hl.low;
+            }
+        }
+        this._logs.push(`[${blockSec}] aggSize=${agg.size}`);
+
+        // Visible range time bounds (best effort)
+        let visFrom = cutoffT;
+        let visTo = lastT;
+
+        if (typeof timeScale.getVisibleRange === 'function') {
+            const vr = timeScale.getVisibleRange();
+            const f = getPointTimeSec({ time: vr?.from });
+            const t = getPointTimeSec({ time: vr?.to });
+            if (f != null && t != null) {
+                visFrom = Math.min(f, t);
+                visTo = Math.max(f, t);
+            }
+        } else if (typeof timeScale.getVisibleLogicalRange === 'function') {
+            // fallback to logical range and data times
+            const lr = timeScale.getVisibleLogicalRange();
+            if (lr) {
+                const fromIdx = Math.max(0, Math.floor(lr.from) - 5);
+                const toIdx = Math.min(data.length - 1, Math.ceil(lr.to) + 5);
+                const a = getPointTimeSec(data[fromIdx]);
+                const b = getPointTimeSec(data[toIdx]);
+                if (a != null && b != null) { visFrom = a; visTo = b; }
+            }
+        }
+
+        this._logs.push(`[${blockSec}] visBounds: ${visFrom} - ${visTo}`);
+
+        const startBlock = Math.floor(visFrom / blockSec) * blockSec;
+        const endBlock = Math.ceil(visTo / blockSec) * blockSec;
+
+        const nowBlock = Math.floor(lastT / blockSec) * blockSec;
+        const quadDur = blockSec / 4;
+
+        let drew = 0;
+        let skips = [];
+
+        for (let bStart = startBlock; bStart <= endBlock; bStart += blockSec) {
+            if (bStart < cutoffT) { skips.push('bStart<C'); continue; }
+            const a = agg.get(bStart);
+            if (!a) { skips.push('noAgg'); continue; }
+
+            const yTop = series.priceToCoordinate(a.max);
+            const yBot = series.priceToCoordinate(a.min);
+            if (yTop == null || yBot == null) { skips.push('yCoordNul'); continue; }
+
+            const bEnd = bStart + blockSec;
+
+            // X edges (bar edges)
+            const idx1 = lowerBoundTime(data, bStart);
+            const idx2 = lowerBoundTime(data, bEnd);
+            const x1 = boundaryTimeToX_edge(timeScale, data, bStart);
+            const x2 = boundaryTimeToX_edge(timeScale, data, bEnd);
+            if (x1 == null || x2 == null) { skips.push('xEdgeNul'); continue; }
+
+            const left = Math.min(x1, x2);
+            const right = Math.max(x1, x2);
+            const wBox = right - left;
+            const hBox = yBot - yTop;
+            if (wBox <= 0.5 || hBox === 0) { skips.push(`w${wBox.toFixed(1)}(x1=${Math.round(x1)},x2=${Math.round(x2)},i1=${idx1},i2=${idx2})/h${Math.round(hBox)}`); continue; }
+
+            drew++;
+
+            // Quadrant stripes
+            for (let q = 0; q < 4; q++) {
+                const qStart = bStart + q * quadDur;
+                const qEnd = qStart + quadDur;
+
+                const qx1 = boundaryTimeToX_edge(timeScale, data, qStart);
+                const qx2 = boundaryTimeToX_edge(timeScale, data, qEnd);
+                if (qx1 == null || qx2 == null) continue;
+
+                const qL = Math.min(qx1, qx2);
+                const qR = Math.max(qx1, qx2);
+                const w = Math.max(1, qR - qL);
+
+                this.ctx.fillStyle = theme.stripes[q] || theme.stripes[0];
+                this.ctx.fillRect(qL, yTop, w, hBox);
+            }
+
+            // Border
+            const isCurrent = (bStart === nowBlock);
+            this.ctx.strokeStyle = isCurrent ? theme.borderCurrent : theme.border;
+            this.ctx.lineWidth = 1;
+            this.ctx.setLineDash([4, 4]);
+            this.ctx.strokeRect(left, yTop, wBox, hBox);
+            this.ctx.setLineDash([]);
+
+            // Label
+            this.ctx.fillStyle = isCurrent ? theme.borderCurrent : theme.border;
+            this.ctx.font = 'bold 10px Inter, system-ui, sans-serif';
+            this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'bottom';
+            this.ctx.fillText(`${theme.label}`, left + 4, yTop - 3);
+
+            // Debug vertical boundary line
+            if (this.debugMode) {
+                const d = new Date(bStart * 1000);
+                const hh = String(d.getUTCHours()).padStart(2, '0');
+                const mm = String(d.getUTCMinutes()).padStart(2, '0');
+
+                this.ctx.strokeStyle = 'rgba(255,0,0,0.65)';
+                this.ctx.setLineDash([2, 2]);
+                this.ctx.beginPath();
+                this.ctx.moveTo(left, 0);
+                this.ctx.lineTo(left, this.paneRect.height);
+                this.ctx.stroke();
+                this.ctx.setLineDash([]);
+
+                this.ctx.fillStyle = 'rgba(255,0,0,0.85)';
+                this.ctx.font = '10px monospace';
+                this.ctx.fillText(`${hh}:${mm}Z`, left + 2, this.paneRect.height - 4);
+            }
+        }
+
+        let skipStr = skips.length > 5 ? skips.slice(0, 5).join(',') + '...' : skips.join(',');
+        this._logs.push(`[${blockSec}] drew=${drew}, skips=${skipStr}`);
+    }
+}
+
+/* ================================================================
+   LIQUIDITY EVENT MANAGER (V2)
+   ================================================================ */
+class LiquidityEventManager {
+    constructor() {
+        this.trackedLevels = new Map(); // symbol -> Map(id -> state)
+        this.recentEvents = []; // Ring buffer of 200 events
+        this.lastMargin = 0.5;
+    }
+
+    syncLevels(symbol, blocks5m, blocks15m) {
+        if (!symbol) return;
+        if (!this.trackedLevels.has(symbol)) {
+            this.trackedLevels.set(symbol, new Map());
+        }
+        const stateMap = this.trackedLevels.get(symbol);
+
+        // Evaluate against High/Low only
+        const register = (blocks, tf) => {
+            blocks.forEach(b => {
+                const idH = `${tf}_${b.bStart}_H`;
+                const idL = `${tf}_${b.bStart}_L`;
+
+                if (!stateMap.has(idH)) stateMap.set(idH, { price: b.high, touchedAtSec: null, reenteredAtSec: null, touchEmitted: false, sweepEmitted: false, type: tf + 'High', bStart: b.bStart });
+                else stateMap.get(idH).price = b.high;
+
+                if (!stateMap.has(idL)) stateMap.set(idL, { price: b.low, touchedAtSec: null, reenteredAtSec: null, touchEmitted: false, sweepEmitted: false, type: tf + 'Low', bStart: b.bStart });
+                else stateMap.get(idL).price = b.low;
+            });
+        };
+
+        register(blocks5m, '5m');
+        register(blocks15m, '15m');
+    }
+
+    _updateMargin() {
+        // dynamic margin = 0.25 * median(|Δ| over last 300 tick deltas)
+        if (typeof tickBuf === 'undefined' || tickBuf.length < 2) return;
+        const m = Math.min(300, tickBuf.length);
+        const deltas = [];
+        for (let i = tickBuf.length - m + 1; i < tickBuf.length; i++) {
+            deltas.push(Math.abs(tickBuf[i].value - tickBuf[i - 1].value));
+        }
+        deltas.sort((a, b) => a - b);
+        const median = deltas.length > 0 ? deltas[Math.floor(deltas.length / 2)] : 0;
+        this.lastMargin = median * 0.25;
+    }
+
+    onTick(tick) {
+        if (!currentSymbol) return;
+        this._updateMargin();
+
+        const stateMap = this.trackedLevels.get(currentSymbol);
+        if (!stateMap) return;
+
+        const p = tick.value;
+        const t = tick.time;
+        const m = this.lastMargin;
+
+        stateMap.forEach((state, id) => {
+            const isHigh = state.type.includes('High');
+
+            // TOUCH logic
+            if (!state.touchEmitted) {
+                if ((isHigh && p >= state.price) || (!isHigh && p <= state.price)) {
+                    state.touchedAtSec = t;
+                    state.touchEmitted = true;
+                    this._pushEvent({ symbol: currentSymbol, levelType: state.type, sourceBlockStartSec: state.bStart, eventType: 'TOUCH', touchTimeSec: t, reentryTimeSec: null, latencySec: null, levelPrice: state.price });
+                }
+            }
+
+            // RE-ENTRY (SWEEP) logic
+            if (state.touchEmitted && !state.sweepEmitted && state.touchedAtSec) {
+                const reentered = isHigh ? (p < state.price - m) : (p > state.price + m);
+                if (reentered) {
+                    state.reenteredAtSec = t;
+                    state.sweepEmitted = true;
+                    const latency = t - state.touchedAtSec;
+                    let evType = null;
+                    if (latency <= 30) evType = 'FAST_SWEEP';
+                    else if (latency <= 90) evType = 'SWEEP';
+
+                    if (evType) {
+                        this._pushEvent({ symbol: currentSymbol, levelType: state.type, sourceBlockStartSec: state.bStart, eventType: evType, touchTimeSec: state.touchedAtSec, reentryTimeSec: t, latencySec: latency, levelPrice: state.price });
+                    }
+                }
+            }
+        });
+    }
+
+    _pushEvent(ev) {
+        this.recentEvents.push(ev);
+        if (this.recentEvents.length > 200) this.recentEvents.shift();
+    }
+}
+window.liqEventManager = new LiquidityEventManager();
+
+/* ================================================================
+   LIQUIDITY + EQUILIBRIUM OVERLAY (V1)
+   ================================================================ */
+
+class LiquidityEqOverlay {
+    /**
+     * @param {Object} cfg
+     * @param {HTMLElement} cfg.slotContainerEl  - outer slot container (contains .tv-chart)
+     * @param {HTMLElement} cfg.plotEl           - the exact element passed to createChart
+     * @param {Object} cfg.chart                - Lightweight chart instance
+     * @param {Object} cfg.series               - Series used for priceToCoordinate
+     * @param {() => Array} cfg.getData         - returns the SAME array used to setData/update the series
+     * @param {Object} cfg.uiState              - Reference to the slot's ui state to persist toggles
+     */
+    constructor(cfg) {
+        this.slotContainerEl = cfg.slotContainerEl;
+        this.plotEl = cfg.plotEl;
+        this.chart = cfg.chart;
+        this.series = cfg.series;
+        this.getData = cfg.getData;
+        this.uiState = cfg.uiState || {};
+
+        if (!this.uiState.liqEq) {
+            this.uiState.liqEq = { enabled5m: false, enabled15m: false, enabledMid: true, enabledEvents: false };
+        }
+
+        this._cachedBlocks5m = [];
+        this._cachedBlocks15m = [];
+        this._lastDataLength = -1;
+        this._lastDataLastT = -1;
+
+        this.canvas = document.createElement('canvas');
+        this.canvas.className = 'liqeq-canvas';
+        this.canvas.style.pointerEvents = 'none';
+        this.canvas.style.zIndex = '9';
+        this.canvas.style.position = 'absolute';
+        this.slotContainerEl.style.position = 'relative';
+        this.slotContainerEl.appendChild(this.canvas);
+        this.ctx = this.canvas.getContext('2d');
+
+        this._createToggles();
+
+        this.dpr = window.devicePixelRatio || 1;
+        this.paneRect = { left: 0, top: 0, width: 0, height: 0 };
+        this._pending = false;
+
+        this._ro = new ResizeObserver(() => {
+            this._syncToPane();
+            this.requestRender();
+        });
+        this._ro.observe(this.slotContainerEl);
+
+        const ts = this.chart.timeScale();
+        if (ts.subscribeVisibleLogicalRangeChange) ts.subscribeVisibleLogicalRangeChange(() => this.requestRender());
+        if (ts.subscribeVisibleTimeRangeChange) ts.subscribeVisibleTimeRangeChange(() => this.requestRender());
+        if (ts.subscribeSizeChange) {
+            ts.subscribeSizeChange(() => {
+                this._syncToPane();
+                this.requestRender();
+            });
+        }
+
+        this._syncToPane();
+        this.requestRender();
+    }
+
+    destroy() {
+        try { this._ro?.disconnect(); } catch { }
+        try { this.canvas?.remove(); } catch { }
+        try { this.togglesWrap?.remove(); } catch { }
+    }
+
+    _createToggles() {
+        const wrap = document.createElement('div');
+        wrap.className = 'liqeq-toggles';
+        wrap.style.position = 'absolute';
+        wrap.style.top = '6px';
+        wrap.style.left = '10px';
+        wrap.style.zIndex = '10';
+        wrap.style.display = 'flex';
+        wrap.style.gap = '6px';
+        wrap.style.pointerEvents = 'auto';
+
+        const mkBtn = (label, key, activeColor) => {
+            const b = document.createElement('button');
+            b.className = 'tb-btn';
+            b.style.font = '12px Inter, system-ui, sans-serif';
+            b.style.padding = '4px 8px';
+            b.style.borderRadius = '6px';
+            b.style.border = '1px solid rgba(255,255,255,.15)';
+            b.style.background = 'rgba(0,0,0,.35)';
+            b.style.color = 'rgba(255,255,255,.85)';
+            b.style.cursor = 'pointer';
+            b.textContent = label;
+
+            const sync = () => {
+                b.style.borderColor = 'rgba(255,255,255,.15)';
+                if (this.uiState.liqEq[key]) {
+                    b.style.borderColor = activeColor;
+                }
+            };
+            sync();
+
+            b.onclick = (e) => {
+                e.stopPropagation();
+                this.uiState.liqEq[key] = !this.uiState.liqEq[key];
+                sync();
+                this.requestRender();
+            };
+            return b;
+        };
+
+        const btn5 = mkBtn('5m L', 'enabled5m', 'rgba(56,139,253,.65)');
+        const btn15 = mkBtn('15m L', 'enabled15m', 'rgba(245,158,11,.65)');
+        const btnMid = mkBtn('Mid', 'enabledMid', 'rgba(255,255,255,.5)');
+        const btnEv = mkBtn('Events', 'enabledEvents', 'rgba(255,255,255,.8)');
+
+        wrap.appendChild(btn5);
+        wrap.appendChild(btn15);
+        wrap.appendChild(btnMid);
+        wrap.appendChild(btnEv);
+        this.slotContainerEl.appendChild(wrap);
+        this.togglesWrap = wrap;
+    }
+
+    _syncToPane() {
+        const paneCanvas = findMainPaneCanvas(this.plotEl);
+        if (!paneCanvas) return;
+
+        const hostRect = this.slotContainerEl.getBoundingClientRect();
+        const paneRect = paneCanvas.getBoundingClientRect();
+
+        const left = Math.round(paneRect.left - hostRect.left);
+        const top = Math.round(paneRect.top - hostRect.top);
+        const width = Math.round(paneRect.width);
+        const height = Math.round(paneRect.height);
+
+        this.paneRect = { left, top, width, height };
+
+        this.canvas.style.left = `${left}px`;
+        this.canvas.style.top = `${top}px`;
+        this.canvas.style.width = `${width}px`;
+        this.canvas.style.height = `${height}px`;
+
+        this.dpr = window.devicePixelRatio || 1;
+        const bw = Math.max(1, Math.round(width * this.dpr));
+        const bh = Math.max(1, Math.round(height * this.dpr));
+        if (this.canvas.width !== bw) this.canvas.width = bw;
+        if (this.canvas.height !== bh) this.canvas.height = bh;
+
+        this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    }
+
+    onDataUpdated() {
+        this._computeBlocks();
+        this.requestRender();
+    }
+
+    _computeBlocks() {
+        const data = this.getData?.() || [];
+        if (data.length < 2) return;
+
+        const lastT = getPointTimeSec(data[data.length - 1]);
+        if (lastT == null) return;
+
+        if (this._lastDataLength === data.length && this._lastDataLastT === lastT) return;
+        this._lastDataLength = data.length;
+        this._lastDataLastT = lastT;
+
+        const getLast3Closed = (blockSec) => {
+            const nowBlock = Math.floor(lastT / blockSec) * blockSec;
+            const cutoffT = nowBlock - (blockSec * 4);
+            const sweepFromIdx = Math.max(0, lowerBoundTime(data, cutoffT));
+
+            const agg = new Map();
+            for (let i = sweepFromIdx; i < data.length; i++) {
+                const t = getPointTimeSec(data[i]);
+                if (t == null) continue;
+                const bStart = Math.floor(t / blockSec) * blockSec;
+                if (bStart >= nowBlock) break;
+                if (bStart < cutoffT) continue;
+
+                const hl = getPointHighLow(data[i]);
+                if (!hl) continue;
+
+                const cur = agg.get(bStart);
+                if (!cur) agg.set(bStart, { min: hl.low, max: hl.high });
+                else {
+                    if (hl.high > cur.max) cur.max = hl.high;
+                    if (hl.low < cur.min) cur.min = hl.low;
+                }
+            }
+
+            const sortedStarts = Array.from(agg.keys()).sort((a, b) => b - a).slice(0, 3);
+            const res = [];
+            sortedStarts.forEach((bStart) => {
+                const a = agg.get(bStart);
+                res.push({
+                    bStart: bStart,
+                    bEnd: bStart + blockSec,
+                    low: a.min,
+                    high: a.max,
+                    mid50: (a.min + a.max) / 2
+                });
+            });
+            return res;
+        };
+
+        this._cachedBlocks5m = getLast3Closed(300);
+        this._cachedBlocks15m = getLast3Closed(900);
+
+        if (window.liqEventManager && currentSymbol) {
+            window.liqEventManager.syncLevels(currentSymbol, this._cachedBlocks5m, this._cachedBlocks15m);
+        }
+    }
+
+    requestRender() {
+        if (this._pending) return;
+        this._pending = true;
+        requestAnimationFrame(() => this._render());
+    }
+
+    _render() {
+        this._pending = false;
+        this._syncToPane();
+
+        const W = this.paneRect.width;
+        const H = this.paneRect.height;
+        if (W <= 0 || H <= 0) return;
+
+        this.ctx.clearRect(0, 0, W, H);
+
+        if (!this.uiState.liqEq.enabled5m && !this.uiState.liqEq.enabled15m) return;
+
+        const data = this.getData?.() || [];
+        if (data.length < 2) return;
+        const lastT = getPointTimeSec(data[data.length - 1]);
+        if (lastT == null) return;
+
+        this.ctx.save();
+        this.ctx.beginPath();
+        this.ctx.rect(0, 0, W, H);
+        this.ctx.clip();
+
+        const ts = this.chart.timeScale();
+        let rightEdgeX = boundaryTimeToX_edge(ts, data, lastT);
+        if (rightEdgeX == null || isNaN(rightEdgeX)) {
+            rightEdgeX = W;
+            const vr = ts.getVisibleLogicalRange();
+            if (vr && vr.to !== null) {
+                const mappedTo = ts.logicalToCoordinate(vr.to);
+                if (mappedTo != null) rightEdgeX = Math.max(0, Math.min(W, mappedTo));
+            }
+        }
+        if (isNaN(rightEdgeX)) rightEdgeX = W;
+
+        const lines = [];
+        const pushBlockLines = (blocks, tf, baseColorStr) => {
+            blocks.forEach((bg, index) => {
+                const ageIdx = index + 1; // 1, 2, 3
+                const alpha = ageIdx === 1 ? 0.55 : (ageIdx === 2 ? 0.35 : 0.22);
+                const startX = boundaryTimeToX_edge(ts, data, bg.bStart);
+                if (startX == null || isNaN(startX)) return;
+
+                const yH = this.series.priceToCoordinate(bg.high);
+                const yL = this.series.priceToCoordinate(bg.low);
+                const yEQ = this.series.priceToCoordinate(bg.mid50);
+
+                if (yH != null) lines.push({ y: yH, startX, alpha, tf, ageIdx, type: 'H', baseColor: baseColorStr, label: `${tf} #${ageIdx} H` });
+                if (yL != null) lines.push({ y: yL, startX, alpha, tf, ageIdx, type: 'L', baseColor: baseColorStr, label: `${tf} #${ageIdx} L` });
+                if (this.uiState.liqEq.enabledMid && yEQ != null) {
+                    lines.push({ y: yEQ, startX, alpha, tf, ageIdx, type: 'EQ', baseColor: baseColorStr, label: `${tf} #${ageIdx} EQ` });
+                }
+            });
+        };
+
+        if (this.uiState.liqEq.enabled15m) pushBlockLines(this._cachedBlocks15m, '15m', '240, 185, 11');
+        if (this.uiState.liqEq.enabled5m) pushBlockLines(this._cachedBlocks5m, '5m', '56, 139, 253');
+
+        // Cluster lines within 6px
+        lines.sort((a, b) => a.y - b.y);
+        const clusters = [];
+        let currentCluster = [];
+
+        for (const line of lines) {
+            if (currentCluster.length === 0) {
+                currentCluster.push(line);
+            } else {
+                const avgY = currentCluster.reduce((sum, l) => sum + l.y, 0) / currentCluster.length;
+                if (Math.abs(line.y - avgY) <= 6) {
+                    currentCluster.push(line);
+                } else {
+                    clusters.push(currentCluster);
+                    currentCluster = [line];
+                }
+            }
+        }
+        if (currentCluster.length > 0) clusters.push(currentCluster);
+
+        // Render merged clusters
+        for (const cluster of clusters) {
+            // Sort to find "strongest" line: lowest ageIdx, then 15m over 5m
+            cluster.sort((a, b) => {
+                if (a.ageIdx !== b.ageIdx) return a.ageIdx - b.ageIdx;
+                if (a.tf !== b.tf) return a.tf === '15m' ? -1 : 1;
+                return 0;
+            });
+
+            const lead = cluster[0];
+            const avgY = cluster.reduce((s, l) => s + l.y, 0) / cluster.length;
+            const minX = Math.min(...cluster.map(l => l.startX));
+
+            const isEq = lead.type === 'EQ';
+            this.ctx.strokeStyle = `rgba(${lead.baseColor}, ${lead.alpha})`;
+            this.ctx.lineWidth = isEq ? 1.2 : 1.6;
+            this.ctx.setLineDash(isEq ? [8, 6] : []);
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(minX, avgY);
+            this.ctx.lineTo(rightEdgeX, avgY);
+            this.ctx.stroke();
+
+            // Draw pill tag at right edge
+            const combinedLabel = cluster.map(l => l.label).join(' | ');
+            this.ctx.font = '10px Inter, system-ui, sans-serif';
+            const textW = this.ctx.measureText(combinedLabel).width;
+            const padding = 4;
+            const ph = 16;
+            const px = Math.max(0, rightEdgeX - textW - padding * 2 - 2);
+            const py = avgY - ph / 2;
+
+            this.ctx.fillStyle = 'rgba(20, 20, 20, 0.85)';
+            this.ctx.beginPath();
+            if (this.ctx.roundRect) {
+                this.ctx.roundRect(px, py, textW + padding * 2, ph, 4);
+            } else {
+                this.ctx.rect(px, py, textW + padding * 2, ph);
+            }
+            this.ctx.fill();
+
+            this.ctx.fillStyle = `rgba(${lead.baseColor}, 0.9)`;
+            this.ctx.textAlign = 'left';
+            this.ctx.textBaseline = 'middle';
+            this.ctx.fillText(combinedLabel, px + padding, avgY);
+        }
+
+        // Render events
+        if (this.uiState.liqEq.enabledEvents && window.liqEventManager && currentSymbol) {
+            const evs = window.liqEventManager.recentEvents.filter(e => e.symbol === currentSymbol);
+
+            const visibleBlocks = new Set([
+                ...(this.uiState.liqEq.enabled5m ? this._cachedBlocks5m.map(b => b.bStart) : []),
+                ...(this.uiState.liqEq.enabled15m ? this._cachedBlocks15m.map(b => b.bStart) : [])
+            ]);
+
+            evs.forEach(ev => {
+                if (!visibleBlocks.has(ev.sourceBlockStartSec)) return;
+
+                const timeToMap = ev.eventType === 'TOUCH' ? ev.touchTimeSec : ev.reentryTimeSec;
+                if (!timeToMap) return;
+
+                const idx = lowerBoundTime(data, timeToMap);
+                const rawX = ts.logicalToCoordinate(idx - 0.5);
+                const x = rawX != null ? rawX : ts.logicalToCoordinate(idx);
+
+                const y = this.series.priceToCoordinate(ev.levelPrice);
+                if (x == null || y == null) return;
+
+                this.ctx.beginPath();
+                if (ev.eventType === 'TOUCH') {
+                    this.ctx.fillStyle = ev.levelType.includes('5m') ? 'rgb(56,139,253)' : 'rgb(240,185,11)';
+                    this.ctx.arc(x, y, 3, 0, Math.PI * 2);
+                    this.ctx.fill();
+                } else if (ev.eventType === 'SWEEP' || ev.eventType === 'FAST_SWEEP') {
+                    this.ctx.fillStyle = ev.eventType === 'FAST_SWEEP' ? '#fff' : 'rgba(255,255,255,0.7)';
+                    this.ctx.font = ev.eventType === 'FAST_SWEEP' ? 'bold 12px Inter' : '10px Inter';
+                    this.ctx.textAlign = 'center';
+                    this.ctx.textBaseline = 'middle';
+                    this.ctx.fillText('S', x, y);
+                }
+            });
+        }
+
+        this.ctx.setLineDash([]);
+        this.ctx.restore();
+    }
+}
+
+/* ================================================================
    LAZY CHART MANAGER
    Charts are NOT created at page load. They are created the first
    time their tab becomes visible. This avoids the 0×0 hidden-tab bug.
@@ -561,6 +1585,8 @@ class ChartSlot {
         this.series = null;
         this.pendingData = null;   // Data queued before chart exists
         this.drawing = null;       // DrawingManager instance
+        this._chartData = [];      // Local exact clone of chart's active data
+        this.uiState = {};         // Persist UI states
     }
 
     /** Create chart and series. Only call when container is visible. */
@@ -593,12 +1619,54 @@ class ChartSlot {
         // Flush any pending data
         if (this.pendingData?.length) {
             this.series.setData(this.pendingData);
+            this._chartData = [...this.pendingData];
             this.chart.timeScale().scrollToRealTime();
             this.pendingData = null;
         }
 
         // Create drawing manager (needs series for coordinate conversion)
         this.drawing = new DrawingManager(this.chart, this.series, this.containerId);
+
+        // Create time block overlay directly in the container
+        let intervalSec = 0;
+        if (this.containerId === 'tickChart') intervalSec = 1;
+        else if (this.containerId === 'chart5s') intervalSec = 5;
+        else if (this.containerId === 'chart10s') intervalSec = 10;
+        else if (this.containerId === 'chart15s') intervalSec = 15;
+        else if (this.containerId === 'chart30s') intervalSec = 30;
+        else if (this.containerId === 'chart1m') intervalSec = 60;
+        else if (this.containerId === 'chart5m') intervalSec = 300;
+        else if (this.containerId === 'gridChartLeft' || this.containerId === 'gridChartRight') {
+            const side = this.containerId === 'gridChartLeft' ? 'left' : 'right';
+            const tf = getGridTf(side);
+            const tfMap = { 'tick': 1, '5s': 5, '10s': 10, '15s': 15, '30s': 30, '1m': 60, '5m': 300 };
+            intervalSec = tfMap[tf] || 5;
+        }
+
+        const plotEl = el.querySelector('.tv-chart');
+
+        this.timeBlockOverlay = new TimeBlockOverlay({
+            slotContainerEl: el,
+            plotEl: plotEl || el, // Fallback if wrapping is different
+            chart: this.chart,
+            series: this.series,
+            intervalSec: intervalSec,
+            getData: () => {
+                return this._chartData || [];
+            }
+        });
+        this.timeBlockOverlay.setDebug(true); // Enable debug testing as requested
+
+        this.liquidityEqOverlay = new LiquidityEqOverlay({
+            slotContainerEl: el,
+            plotEl: plotEl || el,
+            chart: this.chart,
+            series: this.series,
+            uiState: this.uiState,
+            getData: () => {
+                return this._chartData || [];
+            }
+        });
 
         // Ensure barrier line is added when tab is lazily initialised
         updateBarrierLines();
@@ -608,19 +1676,35 @@ class ChartSlot {
         if (!data?.length) return;
         if (this.series) {
             this.series.setData(data);
+            this._chartData = [...data];
             this.chart?.timeScale().scrollToRealTime();
+            if (this.timeBlockOverlay) this.timeBlockOverlay.onDataUpdated();
+            if (this.liquidityEqOverlay) this.liquidityEqOverlay.onDataUpdated();
         } else {
             this.pendingData = data;
         }
     }
 
     update(point) {
-        if (this.series) this.series.update(point);
-        else {
+        if (this.series) {
+            this.series.update(point);
+            if (!this._chartData) this._chartData = [];
+            const last = this._chartData[this._chartData.length - 1];
+            if (last && last.time === point.time) {
+                this._chartData[this._chartData.length - 1] = point;
+            } else {
+                this._chartData.push(point);
+            }
+            if (this.timeBlockOverlay) this.timeBlockOverlay.onDataUpdated();
+            if (this.liquidityEqOverlay) this.liquidityEqOverlay.onDataUpdated();
+        } else {
             if (!this.pendingData) this.pendingData = [];
             const last = this.pendingData[this.pendingData.length - 1];
-            if (last && last.time === point.time) this.pendingData[this.pendingData.length - 1] = point;
-            else this.pendingData.push(point);
+            if (last && last.time === point.time) {
+                this.pendingData[this.pendingData.length - 1] = point;
+            } else {
+                this.pendingData.push(point);
+            }
         }
     }
 
@@ -652,8 +1736,6 @@ const slots = {
     gridR: new ChartSlot('gridChartRight', 'candle'),
 };
 
-// Init the tick chart immediately (it's visible on load)
-slots.tick.init();
 
 // ── Tab → Slot mapping ───────────────────────────────────────────
 const TAB_SLOTS = {
@@ -672,6 +1754,16 @@ const TAB_SLOTS = {
 const candleBuf = { '5s': [], '10s': [], '15s': [], '30s': [], '1m': [], '2m': [], '5m': [] };
 // Tick data buffer (for grid panels showing tick chart)
 let tickBuf = [];
+
+// ── Simple Mode Sidebar State ─────────────────────────────────────
+let textureHistEff = [];
+let textureHistFlip = [];
+let texturalHysteresis = { current: 'WARMING', candidate: '', count: 0 };
+let lastPercentileUpdate = 0;
+let cachedThresholds = { eff20: 0, eff80: 0, flip20: 0, flip80: 0 };
+
+// Init the tick chart immediately (it's visible on load)
+slots.tick.init();
 
 
 // ── Tab Switching ─────────────────────────────────────────────────
@@ -827,18 +1919,41 @@ function rebuildGridPanel(side) {
         slot.series = null;
     }
 
+    // Create new series
     if (tf === 'tick') {
-        // Line series for tick chart
         slot.series = slot.chart.addSeries(LightweightCharts.LineSeries, {
             color: '#58a6ff', lineWidth: 2, priceLineVisible: true, lastValueVisible: true
         });
-        // Feed tick buffer
-        if (tickBuf.length) slot.series.setData([...tickBuf]);
     } else {
-        // Candle series for timeframe charts
         slot.series = slot.chart.addSeries(LightweightCharts.CandlestickSeries, CANDLE_OPTS);
+    }
+
+    // Reattach the new series to the TimeBlockOverlay before setting data
+    if (slot.timeBlockOverlay) {
+        slot.timeBlockOverlay.series = slot.series;
+        const tfMap = { 'tick': 1, '5s': 5, '10s': 10, '15s': 15, '30s': 30, '1m': 60, '5m': 300 };
+        slot.timeBlockOverlay.intervalSec = tfMap[tf] || 5;
+    }
+
+    // Reattach the new series to the LiquidityEqOverlay
+    if (slot.liquidityEqOverlay) {
+        slot.liquidityEqOverlay.series = slot.series;
+    }
+
+    // Feed data securely via slot so ChartSlot caches it for the overlay and triggers onDataUpdated
+    if (tf === 'tick') {
+        if (tickBuf.length) slot.setData([...tickBuf]);
+    } else {
         const data = candleBuf[tf] ?? [];
-        if (data.length) slot.series.setData(data);
+        if (data.length) slot.setData([...data]);
+    }
+
+    // Safety re-render if slot.setData wasn't triggered (e.g., empty buffer)
+    if (slot.timeBlockOverlay) {
+        slot.timeBlockOverlay.requestRender();
+    }
+    if (slot.liquidityEqOverlay) {
+        slot.liquidityEqOverlay.onDataUpdated();
     }
 
     slot.chart.timeScale().scrollToRealTime();
@@ -900,45 +2015,107 @@ function updateCountdowns(data) {
 
 // ── WebSocket ─────────────────────────────────────────────────────
 const wsUrl = `ws://${window.location.hostname}:${window.location.port || 8080}`;
-const ws = new WebSocket(wsUrl);
-ws.onopen = () => setText('symbolBadge', 'CONNECTED');
-ws.onclose = () => { setText('symbolBadge', 'DISCONNECTED'); setTimeout(() => location.reload(), 3000); };
-ws.onerror = (err) => { console.error('[WS Error]', err); setText('symbolBadge', 'ERROR'); };
+let ws;
+let isReconnecting = false;
+let reconnectAttempts = 0;
 
-ws.onmessage = (event) => {
-    try {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-            case 'symbol': setText('symbolBadge', msg.data); break;
-            case 'config': applyConfig(msg.data); break;
-            case 'tick': {
-                slots.tick.update(msg.data);
-                window.lastKnownEpoch = msg.data.time;
-                // Buffer tick for grid panels (capped at 7200 to prevent RAM bloat)
-                tickBuf.push(msg.data);
-                if (tickBuf.length > 7200) tickBuf.shift();
-                // Also push tick to any grid panels showing the tick chart
-                if (getGridTf('left') === 'tick') slots.gridL?.update(msg.data);
-                if (getGridTf('right') === 'tick') slots.gridR?.update(msg.data);
-                // Update barrier line with new spot price
-                currentSpot = msg.data.value;
-                updateBarrierLines();
-                break;
-            }
-            case 'countdown': updateCountdowns(msg.data); break;
-            case 'candle_closed': pushCandle(msg.timeframe, msg.data); break;
-            case 'candle_update': updateLiveCandle(msg.timeframe, msg.data); break;
-            case 'analytics': handleAnalytics(msg.data); break;
-            case 'history': loadHistory(msg.data); break;
-            case 'reach_grid': handleReachGrid(msg.data); break;
+function connectWebSocket() {
+    ws = new WebSocket(wsUrl);
+
+    ws.onopen = () => {
+        setText('symbolBadge', 'CONNECTED');
+        $('symbolBadge').style.background = 'rgba(88, 166, 255, 0.1)';
+        $('symbolBadge').style.color = 'var(--accent)';
+        isReconnecting = false;
+        reconnectAttempts = 0;
+    };
+
+    ws.onclose = () => {
+        setText('symbolBadge', 'RECONNECTING...');
+        $('symbolBadge').style.background = 'rgba(210, 153, 34, 0.1)';
+        $('symbolBadge').style.color = 'var(--yellow)';
+
+        if (!isReconnecting) {
+            isReconnecting = true;
         }
-    } catch (e) { console.error('[WS]', e); }
-};
+
+        // Exponential backoff reconnect
+        let delay = Math.pow(2, reconnectAttempts) * 1000;
+        if (delay > 15000) delay = 15000; // max 15s delay between tries
+
+        setTimeout(() => {
+            reconnectAttempts++;
+            if (ws && ws.readyState === WebSocket.CLOSED) {
+                connectWebSocket();
+            }
+        }, delay);
+    };
+
+    ws.onerror = (err) => {
+        console.error('[WS Error]', err);
+        setText('symbolBadge', 'ERROR');
+        $('symbolBadge').style.background = 'rgba(248, 81, 73, 0.1)';
+        $('symbolBadge').style.color = 'var(--red)';
+    };
+
+    ws.onmessage = (event) => {
+        try {
+            const msg = JSON.parse(event.data);
+            switch (msg.type) {
+                case 'symbol':
+                    currentSymbol = msg.data;
+                    setText('symbolBadge', msg.data);
+                    break;
+                case 'config': applyConfig(msg.data); break;
+                case 'tick': {
+                    const lastTick = tickBuf.length > 0 ? tickBuf[tickBuf.length - 1] : null;
+                    if (lastTick && msg.data.time <= lastTick.time) {
+                        break; // Strict time monotony: ignore duplicates or out-of-order
+                    }
+
+                    slots.tick.update(msg.data);
+                    window.lastKnownEpoch = msg.data.time;
+                    // Buffer tick for grid panels and Simple Mode (capped at 3600)
+                    tickBuf.push(msg.data);
+                    if (tickBuf.length > 3600) tickBuf.shift();
+
+                    if (window.liqEventManager) window.liqEventManager.onTick(msg.data);
+
+                    // Also push tick to any grid panels showing the tick chart
+                    if (getGridTf('left') === 'tick') slots.gridL?.update(msg.data);
+                    if (getGridTf('right') === 'tick') slots.gridR?.update(msg.data);
+                    // Update barrier line with new spot price
+                    currentSpot = msg.data.value;
+                    updateBarrierLines();
+
+                    // Update Simple Mode Meters securely
+                    try { processSimpleMetrics(); } catch (e) { console.error('[Metrics Error]', e); }
+                    break;
+                }
+                case 'countdown': updateCountdowns(msg.data); break;
+                case 'candle_closed': pushCandle(msg.timeframe, msg.data); break;
+                case 'candle_update': updateLiveCandle(msg.timeframe, msg.data); break;
+                case 'analytics': handleAnalytics(msg.data); break;
+                case 'history': loadHistory(msg.data); break;
+                case 'reach_grid': handleReachGrid(msg.data); break;
+            }
+        } catch (e) { console.error('[WS]', e); }
+    };
+} // end connectWebSocket()
+
+connectWebSocket(); // Kick off initial connection
 
 function loadHistory(h) {
     if (h.historicalTicks?.length) {
         slots.tick.setData(h.historicalTicks);
-        tickBuf = [...h.historicalTicks];
+        // Cap history to 3600 specifically for simple mode memory constraints
+        tickBuf = h.historicalTicks.slice(-3600);
+
+        // Reset simple mode on history load (e.g., symbol change)
+        textureHistEff = [];
+        textureHistFlip = [];
+        texturalHysteresis = { current: 'WARMING', candidate: '', count: 0 };
+        lastPercentileUpdate = 0;
     }
     const map = { '5s': 'historicalC5s', '10s': 'historicalC10s', '15s': 'historicalC15s', '30s': 'historicalC30s', '1m': 'historicalC1m', '2m': 'historicalC2m', '5m': 'historicalC5m' };
     for (const [tf, key] of Object.entries(map)) {
@@ -1231,6 +2408,128 @@ function handleAnalytics(d) {
     setText('momentum', (vol.momentum?.direction === 'UP' ? '↑' : vol.momentum?.direction === 'DOWN' ? '↓' : '→') + ' ' + (vol.momentum?.direction ?? '--'));
 }
 function pct(v) { return (v * 100).toFixed(1) + '%'; }
+
+// ── Simple Mode Processing ──────────────────────────────────────────
+function processSimpleMetrics() {
+    const N = tickBuf.length;
+    if (N < 2) return;
+
+    const currentPrice = tickBuf[N - 1].value;
+    const nowSec = tickBuf[N - 1].time;
+
+    // --- 1. IMPULSE METER ---
+    // M=300 trailing median baseline
+    const m = Math.min(300, N);
+    const mSlice = tickBuf.slice(N - m).map(t => t.value).sort((a, b) => a - b);
+    const median = mSlice[Math.floor(m / 2)];
+
+    const currentMag = Math.abs(currentPrice - median);
+
+    // Dynamic big tick threshold (80th percentile of typical jumps, minimum 0.5)
+    let deltas = [];
+    for (let i = N - m + 1; i < N; i++) deltas.push(Math.abs(tickBuf[i].value - tickBuf[i - 1].value));
+    deltas.sort((a, b) => a - b);
+    const thr = deltas.length > 0 ? deltas[Math.floor(deltas.length * 0.8)] : 0;
+    const bigThresh = Math.max(thr * 1.5, 0.5);
+
+    let big60 = 0, big120 = 0;
+    for (let i = N - 1; i > 0; i--) {
+        const dt = nowSec - tickBuf[i].time;
+        if (dt > 120) break;
+        const dPrice = Math.abs(tickBuf[i].value - tickBuf[i - 1].value);
+        if (dPrice >= bigThresh) {
+            if (dt <= 60) big60++;
+            if (dt <= 120) big120++;
+        }
+    }
+
+    setText('impulseMag', currentMag.toFixed(2));
+    setText('impulseBig60', big60);
+    setText('impulseBig120', big120);
+
+    // --- 2. TEXTURE METER ---
+    // N=120 window
+    let eff = 0, flipRate = 0;
+    const nTicks = [];
+    for (let i = N - 1; i >= 0; i--) {
+        if (nowSec - tickBuf[i].time <= 120) nTicks.unshift(tickBuf[i].value);
+        else break;
+    }
+
+    if (nTicks.length >= 2) {
+        let pathLen = 0, flips = 0, lastSign = 0;
+        for (let i = 1; i < nTicks.length; i++) {
+            const d = nTicks[i] - nTicks[i - 1];
+            pathLen += Math.abs(d);
+            const sign = Math.sign(d);
+            if (sign !== 0) {
+                if (lastSign !== 0 && sign !== lastSign) flips++;
+                lastSign = sign;
+            }
+        }
+        const netDist = Math.abs(nTicks[nTicks.length - 1] - nTicks[0]);
+        eff = pathLen > 0 ? (netDist / pathLen) : 0;
+        flipRate = flips / nTicks.length;
+    }
+
+    // History & Percentiles
+    textureHistEff.push(eff);
+    textureHistFlip.push(flipRate);
+    if (textureHistEff.length > 3600) textureHistEff.shift();
+    if (textureHistFlip.length > 3600) textureHistFlip.shift();
+
+    if (nowSec - lastPercentileUpdate > 10 && textureHistEff.length >= 120) {
+        lastPercentileUpdate = nowSec;
+        const sEff = [...textureHistEff].sort((a, b) => a - b);
+        const sFlip = [...textureHistFlip].sort((a, b) => a - b);
+        const len = sEff.length;
+        cachedThresholds.eff20 = sEff[Math.floor(len * 0.2)];
+        cachedThresholds.eff80 = sEff[Math.floor(len * 0.8)];
+        cachedThresholds.flip20 = sFlip[Math.floor(len * 0.2)];
+        cachedThresholds.flip80 = sFlip[Math.floor(len * 0.8)];
+    }
+
+    setText('textureEff', eff.toFixed(3));
+    setText('textureFlip', flipRate.toFixed(3));
+
+    // State Classifier
+    let candidate = 'MIXED';
+    if (textureHistEff.length < 120) {
+        candidate = 'WARMING';
+    } else {
+        const highEff = eff > cachedThresholds.eff80, lowEff = eff < cachedThresholds.eff20;
+        const highFlip = flipRate > cachedThresholds.flip80, lowFlip = flipRate < cachedThresholds.flip20;
+
+        if (highEff && lowFlip) candidate = 'FLOW';
+        else if (lowEff && highFlip) candidate = 'CHOP';
+        else if (lowEff && lowFlip) candidate = 'QUIET';
+    }
+
+    // Hysteresis Anti-Flicker
+    if (candidate === texturalHysteresis.candidate) {
+        texturalHysteresis.count++;
+        if (texturalHysteresis.count >= 8 || candidate === 'WARMING') {
+            texturalHysteresis.current = candidate;
+        }
+    } else {
+        texturalHysteresis.candidate = candidate;
+        texturalHysteresis.count = 1;
+    }
+
+    // UI Update
+    const tLabel = $('textureLabel');
+    if (tLabel) {
+        tLabel.textContent = texturalHysteresis.current;
+        tLabel.style.color = '#fff';
+        switch (texturalHysteresis.current) {
+            case 'FLOW': tLabel.style.background = 'rgba(63, 185, 80, 0.2)'; tLabel.style.color = '#3fb950'; break;
+            case 'CHOP': tLabel.style.background = 'rgba(248, 81, 73, 0.2)'; tLabel.style.color = '#f85149'; break;
+            case 'QUIET': tLabel.style.background = 'rgba(163, 113, 247, 0.2)'; tLabel.style.color = '#a371f7'; break;
+            case 'MIXED': tLabel.style.background = 'rgba(255, 255, 255, 0.05)'; break;
+            case 'WARMING': tLabel.style.background = 'rgba(210, 153, 34, 0.2)'; tLabel.style.color = '#d29922'; break;
+        }
+    }
+}
 
 // ── Controls ──────────────────────────────────────────────────────
 // (Merged into Sidebar Barrier Controls section above)

@@ -55,49 +55,83 @@
                 </div>
             </div>
 
+            <!-- ── SIMPLIFIED METRICS ── -->
             <div class="sidebar-section">
-                <label>Probability Analysis</label>
-                <div class="data-row"><span>Theoretical (GBM)</span><span id="theoProb" class="mono">--%</span></div>
-                <div class="data-row"><span>Empirical (Data)</span><span id="empProb" class="mono">--%</span></div>
-                <div class="data-row divider"><span>Model Estimate</span><span id="ourProb" class="mono bold">--%</span>
+                <label>Impulse Meter <span title="Measures current tick aggression against recent moving baseline"
+                        style="cursor:help;opacity:0.6;">?</span></label>
+                <div class="data-row"><span>Current</span><span id="impulseMag" class="mono">--×</span></div>
+                <div class="data-row"><span>Big Ticks (60s)</span><span id="impulseBig60" class="mono">--</span></div>
+                <div class="data-row"><span>Big Ticks (120s)</span><span id="impulseBig120" class="mono">--</span></div>
+            </div>
+
+            <div class="sidebar-section">
+                <label>Texture Meter <span title="Measures market clean flow vs wasteful chop over 2 mins"
+                        style="cursor:help;opacity:0.6;">?</span></label>
+                <div id="textureLabel"
+                    style="font-size:20px; font-weight:700; text-align:center; padding: 6px 0; margin-bottom: 8px; border-radius: 4px; background: rgba(255,255,255,0.05); color: #fff;">
+                    WARMING</div>
+                <div class="data-row"><span
+                        title="Straight-line progress divided by total tick travel">Efficiency</span><span
+                        id="textureEff" class="mono">--</span></div>
+                <div class="data-row"><span title="Rate of tick direction changes (noise)">Flip Rate</span><span
+                        id="textureFlip" class="mono">--</span></div>
+            </div>
+
+            <!-- ── RESEARCH (COLLAPSED BY DEFAULT) ── -->
+            <details id="researchPanel" style="margin-bottom: 16px;">
+                <summary
+                    style="cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-muted); padding: 8px; background: var(--bg-hover); border-radius: 4px;">
+                    Research ▸ (optional)</summary>
+
+                <div style="padding-top: 12px;">
+                    <div class="sidebar-section">
+                        <label>Probability Analysis</label>
+                        <div class="data-row"><span>Theoretical (GBM)</span><span id="theoProb" class="mono">--%</span>
+                        </div>
+                        <div class="data-row"><span>Empirical (Data)</span><span id="empProb" class="mono">--%</span>
+                        </div>
+                        <div class="data-row divider"><span>Model Estimate</span><span id="ourProb"
+                                class="mono bold">--%</span></div>
+                        <div class="data-row"><span>Breakeven</span><span id="derivProb" class="mono">--%</span></div>
+                        <div class="data-row"><span>Sample Size</span><span id="sampleSize" class="mono">--</span></div>
+                    </div>
+
+                    <div class="sidebar-section">
+                        <label>Difference (Model − Breakeven)</label>
+                        <div id="edgeNumber" class="edge-number mono">--%</div>
+                    </div>
+
+                    <div class="sidebar-section">
+                        <label>Context</label>
+                        <div id="warningsList" class="warnings-list"></div>
+                    </div>
+
+                    <div class="sidebar-section">
+                        <label>Volatility (Log-Return σ)</label>
+                        <div class="vol-bars">
+                            <div class="vol-row"><span>10s</span>
+                                <div class="bar-track">
+                                    <div id="bar10" class="bar-fill"></div>
+                                </div>
+                            </div>
+                            <div class="vol-row"><span>30s</span>
+                                <div class="bar-track">
+                                    <div id="bar30" class="bar-fill"></div>
+                                </div>
+                            </div>
+                            <div class="vol-row"><span>60s</span>
+                                <div class="bar-track">
+                                    <div id="bar60" class="bar-fill"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="data-row mt-sm"><span>Vol Ratio</span><span id="volRatio" class="mono">--</span>
+                        </div>
+                        <div class="data-row"><span>State</span><span id="volTrend" class="mono">--</span></div>
+                        <div class="data-row"><span>Momentum</span><span id="momentum" class="mono">--</span></div>
+                    </div>
                 </div>
-                <div class="data-row"><span>Breakeven</span><span id="derivProb" class="mono">--%</span></div>
-                <div class="data-row"><span>Sample Size</span><span id="sampleSize" class="mono">--</span></div>
-            </div>
-
-            <div class="sidebar-section">
-                <label>Difference (Model − Breakeven)</label>
-                <div id="edgeNumber" class="edge-number mono">--%</div>
-            </div>
-
-            <div class="sidebar-section">
-                <label>Context</label>
-                <div id="warningsList" class="warnings-list"></div>
-            </div>
-
-            <div class="sidebar-section">
-                <label>Volatility (Log-Return σ)</label>
-                <div class="vol-bars">
-                    <div class="vol-row"><span>10s</span>
-                        <div class="bar-track">
-                            <div id="bar10" class="bar-fill"></div>
-                        </div>
-                    </div>
-                    <div class="vol-row"><span>30s</span>
-                        <div class="bar-track">
-                            <div id="bar30" class="bar-fill"></div>
-                        </div>
-                    </div>
-                    <div class="vol-row"><span>60s</span>
-                        <div class="bar-track">
-                            <div id="bar60" class="bar-fill"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="data-row mt-sm"><span>Vol Ratio</span><span id="volRatio" class="mono">--</span></div>
-                <div class="data-row"><span>State</span><span id="volTrend" class="mono">--</span></div>
-                <div class="data-row"><span>Momentum</span><span id="momentum" class="mono">--</span></div>
-            </div>
+            </details>
 
             <div class="sidebar-section" id="reachGridConfigPanel" style="display: none;">
                 <label>Reach Grid Config</label>
@@ -311,7 +345,7 @@
             document.body.appendChild(d);
         };
     </script>
-    <script src="app.js?v=11"></script>
+    <script src="app.js?v=27"></script>
 </body>
 
 </html>

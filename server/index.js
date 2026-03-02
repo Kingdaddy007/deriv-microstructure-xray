@@ -43,6 +43,8 @@ let historySnapshot = null;
 let serverStartTime = Date.now();
 let gapEvents = 0;
 let lastTickTime = null;
+let historyReady = false;
+let pendingClients = [];
 
 // Reach Grid Default State
 let reachGridConfig = {
@@ -64,6 +66,12 @@ wss.on('connection', (ws) => {
 
     // Build a fresh history snapshot every time a client connects,
     // so there is never a gap between history end and live data start.
+    if (!historyReady) {
+        console.log('[UI] Client queued, waiting for history download...');
+        pendingClients.push(ws);
+        return; // Don't send empty history
+    }
+
     const allTicks = tickStore.getAll();
     if (allTicks.length > 0) {
         const candles = makeHistoryCandles(allTicks);
@@ -79,7 +87,6 @@ wss.on('connection', (ws) => {
         };
         ws.send(JSON.stringify({ type: 'history', data: freshSnapshot }));
     } else if (historySnapshot) {
-        // Fallback: server hasn't warmed up yet, send the initial fetch snapshot
         ws.send(JSON.stringify({ type: 'history', data: historySnapshot }));
     }
 
@@ -112,7 +119,7 @@ function broadcast(msg) {
 // --- Deriv Stream ---
 console.log(`[System] Connecting to Deriv for ${primarySymbol}...`);
 
-derivClient.fetchHistory(3).then(history => {
+derivClient.fetchHistory(5).then(history => {
     if (history.length > 0) {
         console.log(`[System] Pre-filling ${history.length} historical ticks...`);
         for (const t of history) {
@@ -133,6 +140,19 @@ derivClient.fetchHistory(3).then(history => {
         };
         console.log(`[System] History ready — ticks: ${history.length}, 5s: ${candles['5s'].length}, 15s: ${candles['15s'].length}, 1m: ${candles['1m'].length}`);
     }
+
+    historyReady = true;
+
+    // Flush pending queued clients
+    if (pendingClients.length > 0) {
+        console.log(`[System] Dispatching history to ${pendingClients.length} queued client(s)...`);
+        const str = JSON.stringify({ type: 'history', data: historySnapshot });
+        pendingClients.forEach(ws => {
+            if (ws.readyState === WebSocket.OPEN) ws.send(str);
+        });
+        pendingClients = [];
+    }
+
     derivClient.connect();
 });
 

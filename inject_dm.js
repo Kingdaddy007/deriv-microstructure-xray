@@ -12,7 +12,7 @@ if (!startMatch) {
     process.exit(1);
 }
 
-const endRegex = /}\s*\/\* =+\s+LAZY CHART MANAGER/;
+const endRegex = /}\s*\/\* =+\s+TIME BLOCK QUADRANT OVERLAY/;
 const endMatch = appJs.match(endRegex);
 
 if (!endMatch) {

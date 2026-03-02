@@ -15,8 +15,8 @@ module.exports = {
         V100_1S: '1HZ100V'
     },
 
-    // Tick Buffer Size (~50 minutes of 1-second ticks)
-    MAX_TICK_HISTORY: 3000,
+    // Tick Buffer Size (~8.3 hours of 1-second ticks)
+    MAX_TICK_HISTORY: 30000,
 
     // Volatility calculation windows (in ticks = seconds for 1s indices)
     VOL_WINDOWS: [10, 30, 60, 120, 300],
