@@ -19,7 +19,8 @@ class DerivClient extends EventEmitter {
         this.symbol = symbol;
         this.ws = null;
         this.appId = config.DERIV_APP_ID;
-        this.url = `${config.DERIV_WS_URL}?app_id=${this.appId}`;
+        this.urls = config.DERIV_WS_URLS; // Array of fallback URLs
+        this.urlIndex = 0;
 
         this.isConnected = false;
         this.isReconnecting = false;
@@ -29,6 +30,15 @@ class DerivClient extends EventEmitter {
         // Pending request callbacks keyed by req_id
         this._pendingRequests = {};
         this._reqId = 1;
+    }
+
+    _getCurrentUrl() {
+        return `${this.urls[this.urlIndex]}?app_id=${this.appId}`;
+    }
+
+    _cycleUrl() {
+        this.urlIndex = (this.urlIndex + 1) % this.urls.length;
+        console.log(`[DerivClient] Switching to Fallback Endpoint: ${this._getCurrentUrl()}`);
     }
 
     /**
@@ -50,6 +60,11 @@ class DerivClient extends EventEmitter {
                 allTicks.push(...batch);
                 // Walk backwards: next request ends just before earliest tick in this batch
                 endEpoch = batch[0].epoch - 1;
+
+                // Add a small delay between pagination requests to avoid tripping Deriv rate limits
+                if (page < pages - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
             } catch (e) {
                 console.warn(`[DerivClient] History page ${page} failed:`, e.message);
                 break;
@@ -68,8 +83,12 @@ class DerivClient extends EventEmitter {
 
     _fetchHistoryPage(endEpoch, count = 5000) {
         return new Promise((resolve) => {
-            const histWs = new WebSocket(this.url);
-            const timeout = setTimeout(() => { histWs.terminate(); resolve([]); }, 12000);
+            const tempUrl = this._getCurrentUrl();
+            const histWs = new WebSocket(tempUrl);
+            const timeout = setTimeout(() => {
+                histWs.close();
+                resolve([]);
+            }, 12000);
 
             histWs.on('open', () => {
                 histWs.send(JSON.stringify({
@@ -82,7 +101,7 @@ class DerivClient extends EventEmitter {
 
             histWs.on('message', (data) => {
                 clearTimeout(timeout);
-                histWs.terminate();
+                histWs.close(); // Graceful close instead of terminate() to prevent zombie connections
                 try {
                     const msg = JSON.parse(data.toString());
                     if (msg.error || !msg.history) { resolve([]); return; }
@@ -102,8 +121,9 @@ class DerivClient extends EventEmitter {
             this.ws.terminate();
         }
 
-        console.log(`[DerivClient] Connecting to ${this.url}...`);
-        this.ws = new WebSocket(this.url);
+        const activeUrl = this._getCurrentUrl();
+        console.log(`[DerivClient] Connecting to ${activeUrl}...`);
+        this.ws = new WebSocket(activeUrl);
 
         this.ws.on('open', () => {
             this.isConnected = true;
@@ -160,7 +180,11 @@ class DerivClient extends EventEmitter {
         });
 
         this.ws.on('error', (err) => {
-            console.error(`[DerivClient] WS Error: ${err.message}`);
+            console.error(`[DerivClient] WS Error (${activeUrl}): ${err.message}`);
+            // If we fail specifically on TLS/Network right away, cycle to the next URL immediately for the next attempt
+            if (err.message.includes('disconnected') || err.message.includes('network')) {
+                this._cycleUrl();
+            }
         });
     }
 

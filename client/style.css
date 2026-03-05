@@ -1,26 +1,49 @@
 :root {
-    --bg: #0d1117;
-    --panel: #161b22;
-    --border: #30363d;
-    --text: #c9d1d9;
-    --muted: #8b949e;
-    --accent: #58a6ff;
-    --green: #3fb950;
-    --red: #f85149;
-    --yellow: #d29922;
+    /* ── Deep Premium Dark Palette ── */
+    --bg: #0a0e14;
+    --bg-elevated: #111820;
+    --panel: #131a24;
+    --border: #1e2a3a;
+    --border-subtle: #162030;
+    --text: #d4dce8;
+    --text-bright: #edf2f7;
+    --muted: #6b7a8d;
+    --accent: #4ea8f6;
+    --accent-dim: rgba(78, 168, 246, 0.15);
+    --accent-glow: rgba(78, 168, 246, 0.25);
+    --green: #36d399;
+    --green-dim: rgba(54, 211, 153, 0.12);
+    --red: #f87272;
+    --red-dim: rgba(248, 114, 114, 0.12);
+    --yellow: #e5a820;
+    --yellow-dim: rgba(229, 168, 32, 0.12);
+    --gradient-accent: linear-gradient(135deg, #4ea8f6, #7c5cfc);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
-/* ── Light Mode ── */
+/* ── Premium Light Mode ── */
 body.light-mode {
-    --bg: #ffffff;
-    --panel: #f6f8fa;
-    --border: #d0d7de;
-    --text: #1f2328;
-    --muted: #656d76;
-    --accent: #0969da;
-    --green: #1a7f37;
-    --red: #cf222e;
-    --yellow: #9a6700;
+    --bg: #f8f9fc;
+    --bg-elevated: #ffffff;
+    --panel: #eef1f6;
+    --border: #d5dae3;
+    --border-subtle: #e2e6ee;
+    --text: #1a2233;
+    --text-bright: #0d1520;
+    --muted: #6c7689;
+    --accent: #3b82f6;
+    --accent-dim: rgba(59, 130, 246, 0.10);
+    --accent-glow: rgba(59, 130, 246, 0.20);
+    --green: #16a34a;
+    --green-dim: rgba(22, 163, 74, 0.08);
+    --red: #dc2626;
+    --red-dim: rgba(220, 38, 38, 0.08);
+    --yellow: #ca8a04;
+    --yellow-dim: rgba(202, 138, 4, 0.08);
+    --gradient-accent: linear-gradient(135deg, #3b82f6, #6366f1);
+    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.06);
+    --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 
@@ -80,12 +103,25 @@ body {
 .brand {
     padding: 0.9rem 1rem;
     border-bottom: 1px solid var(--border);
+    background: linear-gradient(180deg, var(--panel) 0%, var(--bg) 100%);
+    position: relative;
+}
+
+.brand::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 1rem;
+    right: 1rem;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-dim), transparent);
 }
 
 .brand h1 {
     font-size: 0.9rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--text-bright);
+    letter-spacing: 0.02em;
 }
 
 .badge {
@@ -93,21 +129,50 @@ body {
     margin-top: 4px;
     font-size: 0.68rem;
     padding: 2px 7px;
-    background: rgba(88, 166, 255, 0.1);
+    background: var(--accent-dim);
     color: var(--accent);
     border-radius: 4px;
+    border: 1px solid rgba(78, 168, 246, 0.08);
+    transition: all 0.3s;
+}
+
+.brand-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-theme {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 8px;
+    cursor: pointer;
+    font-size: 16px;
+    color: var(--text);
+    transition: all 0.2s;
+}
+
+.btn-theme:hover {
+    background: var(--bg-elevated);
+    border-color: var(--muted);
 }
 
 .sidebar-section {
     padding: 0.8rem 1rem;
-    border-bottom: 1px solid var(--border);
+    border-bottom: 1px solid var(--border-subtle);
+    transition: background 0.2s;
+}
+
+.sidebar-section:hover {
+    background: var(--bg-elevated);
 }
 
 .sidebar-section label {
     display: block;
     font-size: 0.62rem;
     text-transform: uppercase;
-    letter-spacing: 0.07em;
+    letter-spacing: 0.08em;
     color: var(--muted);
     margin-bottom: 0.5rem;
 }
@@ -115,8 +180,9 @@ body {
 .price {
     font-size: 1.7rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--text-bright);
     line-height: 1;
+    transition: text-shadow 0.3s;
 }
 
 .warmup-pill {
@@ -124,10 +190,11 @@ body {
     margin-top: 5px;
     font-size: 0.68rem;
     padding: 2px 8px;
-    background: rgba(210, 153, 34, 0.1);
+    background: var(--yellow-dim);
     color: var(--yellow);
-    border: 1px solid rgba(210, 153, 34, 0.25);
+    border: 1px solid rgba(229, 168, 32, 0.2);
     border-radius: 10px;
+    animation: pulse-warmup 2s ease-in-out infinite;
 }
 
 .toggle-group {
@@ -139,19 +206,27 @@ body {
 .toggle-btn {
     flex: 1;
     padding: 6px;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     font-size: 0.78rem;
     font-weight: 500;
     background: var(--bg);
     border: 1px solid var(--border);
     color: var(--muted);
+    transition: all 0.2s ease;
+}
+
+.toggle-btn:hover {
+    background: var(--bg-elevated);
+    color: var(--text);
+    border-color: var(--border);
 }
 
 .toggle-btn.active {
-    background: rgba(88, 166, 255, 0.1);
+    background: var(--accent-dim);
     color: var(--accent);
     border-color: var(--accent);
+    box-shadow: 0 0 8px var(--accent-dim);
 }
 
 .input-row {
@@ -173,13 +248,15 @@ body {
     border: 1px solid var(--border);
     color: var(--text);
     padding: 5px 7px;
-    border-radius: 4px;
+    border-radius: 6px;
     font-size: 0.83rem;
+    transition: all 0.2s;
 }
 
 .input-group input:focus {
     border-color: var(--accent);
     outline: none;
+    box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
 .data-row {
@@ -195,6 +272,54 @@ body {
     color: var(--text);
 }
 
+/* Collapsible Panel Helpers */
+
+.collapsible-panel.mb-sm {
+    margin-bottom: 8px;
+}
+
+.panel-header {
+    cursor: pointer;
+    font-weight: 600;
+    font-size: 11px;
+    color: var(--text-muted);
+    padding: 4px 16px;
+    background: rgba(255, 255, 255, 0.01);
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-header.lg {
+    font-size: 13px;
+    background: rgba(255, 255, 255, 0.02);
+    padding: 8px 16px;
+}
+
+.panel-content {
+    padding: 8px 16px;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.panel-content.indented {
+    padding-top: 12px;
+}
+
+.help-icon {
+    cursor: help;
+    opacity: 0.6;
+}
+
+.texture-badge {
+    font-size: 20px;
+    font-weight: 700;
+    text-align: center;
+    padding: 6px 0;
+    margin-bottom: 8px;
+    border-radius: 4px;
+    background: rgba(255, 255, 255, 0.05);
+    color: #fff;
+}
+
 .data-row.divider {
     border-top: 1px dashed var(--border);
     padding-top: 5px;
@@ -208,7 +333,7 @@ body {
 .edge-number {
     font-size: 1.9rem;
     font-weight: 700;
-    color: #fff;
+    color: var(--text-bright);
 }
 
 .warnings-list {
@@ -253,7 +378,7 @@ body {
 .bar-track {
     flex: 1;
     height: 4px;
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--border-subtle);
     border-radius: 3px;
 }
 
@@ -284,46 +409,59 @@ body {
 
 /* Tab Bar */
 .tab-bar {
-    height: 40px;
+    height: 44px;
     display: flex;
     align-items: center;
-    gap: 2px;
-    padding: 0 0.6rem;
+    gap: 4px;
+    padding: 0 0.8rem;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+    background: var(--panel);
+    position: relative;
+    z-index: 10010;
 }
 
 .tab {
-    padding: 4px 12px;
-    border-radius: 4px;
+    padding: 5px 14px;
+    border-radius: 20px;
     cursor: pointer;
     font-size: 0.78rem;
     font-weight: 500;
     border: none;
     background: transparent;
     color: var(--muted);
+    transition: all 0.2s ease;
 }
 
 .tab:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--accent-dim);
     color: var(--text);
 }
 
 .tab.active {
-    background: rgba(255, 255, 255, 0.1);
+    background: var(--gradient-accent);
     color: #fff;
+    box-shadow: 0 2px 8px var(--accent-dim);
 }
 
 /* Drawing Toolbar */
 .drawing-toolbar {
-    height: 36px;
+    height: 38px;
     display: flex;
     align-items: center;
     gap: 3px;
     padding: 0 0.75rem;
-    border-bottom: 1px solid var(--border);
-    background: var(--panel);
+    border-bottom: 1px solid var(--border-subtle);
+    background: rgba(19, 26, 36, 0.8);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
     flex-shrink: 0;
+    position: relative;
+    z-index: 10010;
+}
+
+body.light-mode .drawing-toolbar {
+    background: rgba(238, 241, 246, 0.85);
 }
 
 .toolbar-label {
@@ -332,12 +470,39 @@ body {
     margin-right: 4px;
 }
 
+body.is-fullscreen .drawing-toolbar {
+    position: fixed;
+    top: 50%;
+    left: 10px;
+    transform: translateY(-50%);
+    flex-direction: column;
+    width: 44px;
+    height: auto;
+    padding: 10px 0;
+    border: 1px solid var(--border-subtle);
+    border-radius: 8px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+    z-index: 100000;
+}
+
+body.is-fullscreen .toolbar-label {
+    display: none;
+}
+
+/* Hide Redundant Controls in Split Mode Fullscreen (requested by user) */
+body.is-split-view.is-fullscreen .tab-bar,
+body.is-split-view.is-fullscreen .drawing-toolbar {
+    display: none !important;
+}
+
+
+
 .tool-btn {
     width: 28px;
     height: 28px;
     background: transparent;
     border: 1px solid transparent;
-    border-radius: 4px;
+    border-radius: 6px;
     color: var(--text);
     cursor: pointer;
     display: flex;
@@ -346,7 +511,9 @@ body {
     font-size: 14px;
     font-family: 'JetBrains Mono', monospace;
     font-weight: 700;
+    transition: all 0.2s;
 }
+
 
 .tool-input {
     background: var(--bg);
@@ -368,23 +535,45 @@ body {
 }
 
 .tool-btn:hover {
-    background: var(--border);
-    color: var(--text);
+    background: var(--bg-elevated);
+    color: var(--text-bright);
+    border-color: var(--border);
 }
 
 .tool-btn.active {
-    background: rgba(88, 166, 255, 0.15);
+    background: var(--accent-dim);
     color: var(--accent);
     border-color: var(--accent);
-}
-
-.del-btn {
-    color: var(--red);
-    border-color: rgba(248, 81, 73, 0.3);
+    box-shadow: 0 0 6px var(--accent-dim);
 }
 
 .del-btn:hover {
-    background: rgba(248, 81, 73, 0.1);
+    background: var(--red-dim);
+}
+
+.exit-fs-btn {
+    display: none !important;
+    background: var(--red) !important;
+    color: white !important;
+    width: auto !important;
+    padding: 0 10px !important;
+    font-weight: 700;
+    font-size: 0.75rem;
+    border-radius: 4px;
+    margin-left: auto;
+}
+
+.exit-fs-btn:hover {
+    background: #ff5252 !important;
+    box-shadow: 0 0 10px rgba(248, 114, 114, 0.4);
+}
+
+body.is-fullscreen .fs-only {
+    display: flex !important;
+}
+
+body.is-fullscreen #btnExitFullscreen {
+    display: flex !important;
 }
 
 .toolbar-sep {
@@ -392,6 +581,12 @@ body {
     height: 20px;
     background: var(--border);
     margin: 0 4px;
+}
+
+body.is-fullscreen .toolbar-sep {
+    width: 20px;
+    height: 1px;
+    margin: 4px 0;
 }
 
 .color-label input[type="color"] {
@@ -425,13 +620,13 @@ body {
 
 /* Countdown Bar */
 .countdown-bar {
-    height: 26px;
+    height: 28px;
     display: flex;
     align-items: center;
     gap: 8px;
     padding: 0 10px;
-    background: rgba(255, 255, 255, 0.03);
-    border-bottom: 1px solid var(--border);
+    background: var(--bg-elevated);
+    border-bottom: 1px solid var(--border-subtle);
     flex-shrink: 0;
     position: relative;
     overflow: hidden;
@@ -448,7 +643,7 @@ body {
     left: 0;
     top: 0;
     height: 100%;
-    background: rgba(88, 166, 255, 0.08);
+    background: var(--accent-dim);
     transition: width 0.5s linear;
     z-index: 0;
 }
@@ -509,7 +704,7 @@ body {
 }
 
 .grid-resizer.is-resizing {
-    background: rgba(88, 166, 255, 0.1);
+    background: var(--accent-dim);
 }
 
 .grid-header {
@@ -535,13 +730,13 @@ body {
     cursor: pointer;
     font-size: 14px;
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: 6px;
     transition: all 0.2s;
 }
 
 .icon-btn:hover {
-    color: var(--text);
-    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-bright);
+    background: var(--accent-dim);
 }
 
 .fullscreen {
@@ -552,7 +747,7 @@ body {
     height: 100vh !important;
     z-index: 9999 !important;
     background: var(--bg) !important;
-    padding: 8px !important;
+    padding: 0 !important;
 }
 
 .tf-select {
@@ -627,34 +822,38 @@ body {
 }
 
 .tb-btn {
-    background: rgba(22, 27, 34, 0.7);
+    background: rgba(19, 26, 36, 0.75);
     border: 1px solid var(--border);
     color: var(--muted);
     font-size: 11px;
     font-weight: 600;
     padding: 3px 6px;
-    border-radius: 4px;
+    border-radius: 6px;
     cursor: pointer;
     -webkit-backdrop-filter: blur(4px);
     backdrop-filter: blur(4px);
     transition: all 0.2s;
 }
 
+body.light-mode .tb-btn {
+    background: rgba(238, 241, 246, 0.8);
+}
+
 .tb-btn:hover {
     color: var(--text);
-    border-color: rgba(255, 255, 255, 0.2);
+    border-color: var(--muted);
 }
 
 .tb-btn.active.tb-5m {
-    color: #58a6ff;
-    border-color: rgba(88, 166, 255, 0.4);
-    background: rgba(88, 166, 255, 0.08);
+    color: var(--accent);
+    border-color: var(--accent-dim);
+    background: var(--accent-dim);
 }
 
 .tb-btn.active.tb-15m {
-    color: #d29922;
-    border-color: rgba(210, 153, 34, 0.4);
-    background: rgba(210, 153, 34, 0.08);
+    color: var(--yellow);
+    border-color: var(--yellow-dim);
+    background: var(--yellow-dim);
 }
 
 /* Developer Stats Panel */
@@ -662,17 +861,21 @@ body {
     position: fixed;
     bottom: 20px;
     right: 20px;
-    background: rgba(13, 17, 23, 0.95);
+    background: rgba(10, 14, 20, 0.92);
     border: 1px solid var(--border);
-    border-radius: 8px;
+    border-radius: 10px;
     padding: 12px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    box-shadow: var(--shadow-md);
     z-index: 1000;
-    -webkit-backdrop-filter: blur(10px);
-    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
     width: 200px;
     font-size: 11px;
     color: var(--muted);
+}
+
+body.light-mode .dev-stats-panel {
+    background: rgba(248, 249, 252, 0.92);
 }
 
 .stats-header {
@@ -697,6 +900,54 @@ body {
     font-family: 'JetBrains Mono', monospace;
 }
 
+/* Reach Grid Heatmap */
+.reach-grid-container {
+    padding: 24px;
+    color: var(--text);
+}
+
+.reach-grid-title {
+    margin-top: 0;
+    font-weight: 600;
+    font-size: 1.2rem;
+    margin-bottom: 8px;
+}
+
+.reach-grid-warning {
+    color: #ffcc00;
+    font-size: 0.85rem;
+    margin-bottom: 16px;
+    min-height: 16px;
+}
+
+.scroll-x {
+    overflow-x: auto;
+}
+
+.panel-content-indented {
+    padding: 0 12px 12px 12px;
+}
+
+.panel-content-inden.sys-btn {
+    background: transparent;
+}
+
+.hidden {
+    display: none !important;
+}
+
+.p-lg {
+    padding: 24px;
+}
+
+.mt-0 {
+    margin-top: 0;
+}
+
+.mb-sm {
+    margin-bottom: 8px;
+}
+
 .sys-btn {
     background: transparent;
     color: var(--muted);
@@ -714,7 +965,7 @@ body {
 
 .sys-btn:hover {
     color: var(--text);
-    background: rgba(255, 255, 255, 0.05);
+    background: var(--accent-dim);
 }
 
 .sys-btn svg {
@@ -758,7 +1009,7 @@ body {
 .reach-cell {
     font-family: 'JetBrains Mono', monospace;
     font-weight: 500;
-    color: #fff;
+    color: var(--text-bright);
     transition: background-color 0.3s ease;
     text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
@@ -818,3 +1069,114 @@ body {
 }
 
 /* Very hot */
+
+/* ═══════════════════════════════════════════════════════
+   PHASE 4 — MICRO-ANIMATIONS & POLISH
+   ═══════════════════════════════════════════════════════ */
+
+/* ── Price Flash (triggered by JS on tick) ── */
+.price.flash-green {
+    text-shadow: 0 0 12px var(--green), 0 0 4px var(--green-dim);
+}
+
+.price.flash-red {
+    text-shadow: 0 0 12px var(--red), 0 0 4px var(--red-dim);
+}
+
+/* ── Warmup Pill Pulse ── */
+@keyframes pulse-warmup {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.6;
+    }
+}
+
+/* ── Custom Scrollbar ── */
+.sidebar::-webkit-scrollbar {
+    width: 5px;
+}
+
+.sidebar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.sidebar::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 3px;
+}
+
+.sidebar::-webkit-scrollbar-thumb:hover {
+    background: var(--muted);
+}
+
+/* ── Details/Summary Panels ── */
+details summary {
+    list-style: none;
+    -webkit-user-select: none;
+    user-select: none;
+    transition: background 0.2s, color 0.2s;
+}
+
+details summary::-webkit-details-marker {
+    display: none;
+}
+
+details summary:hover {
+    background: var(--bg-elevated);
+    color: var(--text);
+}
+
+details[open] summary {
+    color: var(--accent);
+    border-bottom-color: var(--accent-dim);
+}
+
+/* ── Focus Rings (Global) ── */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+}
+
+/* ── Light Mode Specific Overrides ── */
+body.light-mode .brand h1 {
+    color: var(--text-bright);
+}
+
+body.light-mode .price {
+    color: var(--text-bright);
+}
+
+body.light-mode .edge-number {
+    color: var(--text-bright);
+}
+
+body.light-mode .tab.active {
+    color: #fff;
+}
+
+body.light-mode .reach-cell {
+    color: #fff;
+}
+
+body.light-mode details summary {
+    background: rgba(0, 0, 0, 0.02);
+}
+
+body.light-mode details summary:hover {
+    background: rgba(0, 0, 0, 0.04);
+}
+
+body.light-mode .sidebar {
+    box-shadow: 1px 0 4px rgba(0, 0, 0, 0.04);
+}
+
+body.light-mode .bar-track {
+    background: rgba(0, 0, 0, 0.06);
+}

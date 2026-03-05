@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Micro-Structure X-Ray</title>
-    <link rel="stylesheet" href="style.css?v=7">
+    <link rel="stylesheet" href="style.css?v=11">
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap"
         rel="stylesheet">
@@ -18,11 +18,10 @@
         <!-- ═══════════════ SIDEBAR ═══════════════ -->
         <aside class="sidebar">
             <div class="brand">
-                <h1>Micro-Structure X-Ray</h1>
-                <div style="display:flex; align-items:center; gap:8px;">
+                <h1 class="brand-title">Micro-Structure X-Ray</h1>
+                <div class="brand-status">
                     <span id="symbolBadge" class="badge">CONNECTING...</span>
-                    <button id="themeToggle" title="Toggle Light/Dark Mode"
-                        style="background:none; border:1px solid var(--border); border-radius:6px; padding:4px 8px; cursor:pointer; font-size:16px; color:var(--text); transition: all 0.2s;">🌙</button>
+                    <button id="themeToggle" title="Toggle Light/Dark Mode" class="btn-theme">🌙</button>
                 </div>
             </div>
 
@@ -33,57 +32,76 @@
                 <div id="warmupBadge" class="warmup-pill">WARMING UP</div>
             </div>
 
+
+            <!-- ── HEALTH MONITORING (COLLAPSED) ── -->
+            <details id="healthPanel" class="collapsible-panel">
+                <summary class="panel-header">Health ▸</summary>
+                <div class="panel-content health-grid">
+                    <div class="data-row"><span>Status</span><span id="healthWs" class="mono">--</span></div>
+                    <div class="data-row"><span>Last Tick</span><span id="healthLast" class="mono">--</span></div>
+                    <div class="data-row"><span>Ticks/Min</span><span id="healthTpm" class="mono">--</span></div>
+                    <div class="data-row"><span>Buffer (T)</span><span id="healthTickBuf" class="mono">--</span></div>
+                    <div class="data-row"><span>Buffer (C)</span><span id="healthCandleBuf" class="mono">--</span></div>
+                </div>
+            </details>
+
             <div class="sidebar-section">
                 <label>Parameters</label>
-                <div class="toggle-group" style="margin-bottom: 8px;">
+                <div class="toggle-group mb-sm">
                     <button class="toggle-btn active" id="btnUp">Touch ▲</button>
                     <button class="toggle-btn" id="btnDown">Touch ▼</button>
                 </div>
-                <div class="toggle-group" style="margin-bottom: 8px;">
+                <div class="toggle-group mb-sm">
                     <button class="toggle-btn active" id="btnFloat" title="Barrier follows spot ± offset">Float</button>
                     <button class="toggle-btn" id="btnFreeze" title="Lock barrier price at current spot">Freeze</button>
                 </div>
                 <div class="input-row">
                     <div class="input-group">
                         <span>Barrier</span>
-                        <input type="number" id="barrierInput" value="2.0" step="0.01" class="mono">
+                        <input type="number" id="barrierInput" title="Price offset for the barrier" value="2.0"
+                            step="0.01" class="mono" placeholder="2.0">
                     </div>
                     <div class="input-group">
                         <span>ROI %</span>
-                        <input type="number" id="roiInput" value="109" step="1" class="mono">
+                        <input type="number" id="roiInput" title="Expected Payout ROI Percentage" value="109" step="1"
+                            class="mono" placeholder="109">
                     </div>
                 </div>
             </div>
 
-            <!-- ── SIMPLIFIED METRICS ── -->
-            <div class="sidebar-section">
-                <label>Impulse Meter <span title="Measures current tick aggression against recent moving baseline"
-                        style="cursor:help;opacity:0.6;">?</span></label>
-                <div class="data-row"><span>Current</span><span id="impulseMag" class="mono">--×</span></div>
-                <div class="data-row"><span>Big Ticks (60s)</span><span id="impulseBig60" class="mono">--</span></div>
-                <div class="data-row"><span>Big Ticks (120s)</span><span id="impulseBig120" class="mono">--</span></div>
-            </div>
+            <!-- ── ADVANCED METRICS (COLLAPSED BY DEFAULT) ── -->
+            <details id="advancedMetricsPanel" class="collapsible-panel main-metrics">
+                <summary class="panel-header lg">Advanced Metrics ▸</summary>
+                <div>
+                    <div class="sidebar-section">
+                        <label>Impulse Meter <span
+                                title="Measures current tick aggression against recent moving baseline"
+                                class="help-icon">?</span></label>
+                        <div class="data-row"><span>Current</span><span id="impulseMag" class="mono">--×</span></div>
+                        <div class="data-row"><span>Big Ticks (60s)</span><span id="impulseBig60" class="mono">--</span>
+                        </div>
+                        <div class="data-row"><span>Big Ticks (120s)</span><span id="impulseBig120"
+                                class="mono">--</span></div>
+                    </div>
 
-            <div class="sidebar-section">
-                <label>Texture Meter <span title="Measures market clean flow vs wasteful chop over 2 mins"
-                        style="cursor:help;opacity:0.6;">?</span></label>
-                <div id="textureLabel"
-                    style="font-size:20px; font-weight:700; text-align:center; padding: 6px 0; margin-bottom: 8px; border-radius: 4px; background: rgba(255,255,255,0.05); color: #fff;">
-                    WARMING</div>
-                <div class="data-row"><span
-                        title="Straight-line progress divided by total tick travel">Efficiency</span><span
-                        id="textureEff" class="mono">--</span></div>
-                <div class="data-row"><span title="Rate of tick direction changes (noise)">Flip Rate</span><span
-                        id="textureFlip" class="mono">--</span></div>
-            </div>
+                    <div class="sidebar-section">
+                        <label>Texture Meter <span title="Measures market clean flow vs wasteful chop over 2 mins"
+                                class="help-icon">?</span></label>
+                        <div id="textureLabel" class="texture-badge">WARMING</div>
+                        <div class="data-row"><span
+                                title="Straight-line progress divided by total tick travel">Efficiency</span><span
+                                id="textureEff" class="mono">--</span></div>
+                        <div class="data-row"><span title="Rate of tick direction changes (noise)">Flip Rate</span><span
+                                id="textureFlip" class="mono">--</span></div>
+                    </div>
+                </div>
+            </details>
 
             <!-- ── RESEARCH (COLLAPSED BY DEFAULT) ── -->
-            <details id="researchPanel" style="margin-bottom: 16px;">
-                <summary
-                    style="cursor: pointer; font-weight: 600; font-size: 13px; color: var(--text-muted); padding: 8px; background: var(--bg-hover); border-radius: 4px;">
-                    Research ▸ (optional)</summary>
+            <details id="researchPanel" class="collapsible-panel research-pnl">
+                <summary class="panel-header lg">Research ▸ (optional)</summary>
 
-                <div style="padding-top: 12px;">
+                <div class="panel-content indented">
                     <div class="sidebar-section">
                         <label>Probability Analysis</label>
                         <div class="data-row"><span>Theoretical (GBM)</span><span id="theoProb" class="mono">--%</span>
@@ -133,9 +151,9 @@
                 </div>
             </details>
 
-            <div class="sidebar-section" id="reachGridConfigPanel" style="display: none;">
+            <div class="sidebar-section hidden" id="reachGridConfigPanel">
                 <label>Reach Grid Config</label>
-                <div class="toggle-group" style="margin-bottom:8px">
+                <div class="toggle-group mt-sm">
                     <button class="toggle-btn active" id="btnGridEither">Either</button>
                     <button class="toggle-btn" id="btnGridUp" title="Up only">Up ▲</button>
                     <button class="toggle-btn" id="btnGridDown" title="Down only">Down ▼</button>
@@ -176,26 +194,31 @@
                 <button class="tool-btn" data-tool="triangle" title="Triangle">△</button>
                 <button class="tool-btn" data-tool="text" title="Text / Comment">T</button>
                 <div class="toolbar-sep"></div>
-                <button class="tool-btn" id="btnMarkNow"
-                    title="Mark Now (Drop vertical line at current price)">📍</button>
-                <div class="toolbar-sep"></div>
                 <label class="color-label" title="Drawing color">
-                    <input type="color" id="drawColorPicker" value="#58a6ff">
+                    <input type="color" id="drawColorPicker" title="Pick drawing color" value="#58a6ff">
                 </label>
                 <div class="toolbar-sep"></div>
-                <button class="tool-btn" id="btnScrollNow" title="Scroll chart to current time">⏩ Now</button>
                 <button class="tool-btn del-btn" id="btnDeleteDrawing" title="Delete selected drawing">✕</button>
+                <div class="toolbar-sep fs-only"></div>
+                <button id="btnExitFullscreen" class="tool-btn exit-fs-btn">✕ Exit FS</button>
             </div>
 
             <!-- Chart Views -->
             <div id="tickView" class="chart-view active">
+                <div class="view-header">
+                    <div></div>
+                    <button class="icon-btn fullscreen-btn" data-target="tickView" title="Fullscreen">⛶</button>
+                </div>
                 <div id="tickChart" class="chart-container"></div>
             </div>
             <div id="view5s" class="chart-view">
-                <div class="countdown-bar">
-                    <div class="cd-label">Next 5s candle</div>
-                    <div class="cd-fill" id="cd5s"></div>
-                    <div class="cd-time" id="cdt5s">5.0s</div>
+                <div class="view-header">
+                    <div class="countdown-bar">
+                        <div class="cd-label">Next 5s candle</div>
+                        <div class="cd-fill" id="cd5s"></div>
+                        <div class="cd-time" id="cdt5s">5.0s</div>
+                    </div>
+                    <button class="icon-btn fullscreen-btn" data-target="view5s" title="Fullscreen">⛶</button>
                 </div>
                 <div id="chart5s" class="chart-container"></div>
             </div>
@@ -258,8 +281,8 @@
             <div id="viewGrid" class="chart-view grid-view">
                 <div class="grid-cell" id="gridLeft">
                     <div class="grid-header">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <select class="tf-select" id="gridLeftTf">
+                        <div class="brand-status">
+                            <select class="tf-select" id="gridLeftTf" title="Timeframe for left grid chart">
                                 <option value="tick">Tick Chart</option>
                                 <option value="5s" selected>5 Seconds</option>
                                 <option value="10s">10 Seconds</option>
@@ -271,15 +294,15 @@
                             </select>
                             <span class="cd-inline" id="cdGridLeft">--</span>
                         </div>
-                        <button class="icon-btn fullscreen-btn" data-target="gridLeft" title="Fullscreen">⛶</button>
+                        <button class="icon-btn fullscreen-btn" data-target="viewGrid" title="Fullscreen">⛶</button>
                     </div>
                     <div id="gridChartLeft" class="chart-container"></div>
                 </div>
                 <div class="grid-resizer" id="gridResizer"></div>
                 <div class="grid-cell" id="gridRight">
                     <div class="grid-header">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <select class="tf-select" id="gridRightTf">
+                        <div class="brand-status">
+                            <select class="tf-select" id="gridRightTf" title="Timeframe for right grid chart">
                                 <option value="tick">Tick Chart</option>
                                 <option value="5s">5 Seconds</option>
                                 <option value="10s">10 Seconds</option>
@@ -291,7 +314,7 @@
                             </select>
                             <span class="cd-inline" id="cdGridRight">--</span>
                         </div>
-                        <button class="icon-btn fullscreen-btn" data-target="gridRight" title="Fullscreen">⛶</button>
+                        <button class="icon-btn fullscreen-btn" data-target="viewGrid" title="Fullscreen">⛶</button>
                     </div>
                     <div id="gridChartRight" class="chart-container"></div>
                 </div>
@@ -299,12 +322,10 @@
 
             <!-- Reach Grid (Heatmap) View -->
             <div id="viewReachGrid" class="chart-view">
-                <div class="reach-grid-container" style="padding: 24px; color: var(--text);">
-                    <h2 style="margin-top:0; font-weight:600; font-size:1.2rem; margin-bottom: 8px;">Barrier
-                        Reachability Map</h2>
-                    <div id="reachGridWarning"
-                        style="color: #ffcc00; font-size: 0.85rem; margin-bottom:16px; min-height:16px;"></div>
-                    <div style="overflow-x: auto;">
+                <div class="reach-grid-container">
+                    <h2 class="reach-grid-title">Barrier Reachability Map</h2>
+                    <div id="reachGridWarning" class="reach-grid-warning"></div>
+                    <div class="scroll-x">
                         <table id="reachGridTable" class="reach-table">
                             <!-- Populated dynamically by JS -->
                         </table>
@@ -316,7 +337,7 @@
     </div>
 
     <!-- Developer Stats Floating Panel -->
-    <div id="devStatsPanel" class="dev-stats-panel" style="display: none;">
+    <div id="devStatsPanel" class="dev-stats-panel hidden">
         <div class="stats-header">Developer Stats (Server)</div>
         <div class="stats-grid">
             <div class="stat-label">Uptime:</div>
@@ -332,8 +353,8 @@
 
     <!-- Scripts -->
     <!-- Text input overlay for comment tool -->
-    <div id="textInputOverlay" class="text-input-overlay" style="display:none">
-        <input type="text" id="textInputField" placeholder="Type comment, Enter to place">
+    <div id="textInputOverlay" class="text-input-overlay hidden">
+        <input type="text" id="textInputField" title="Comment text" placeholder="Type comment, Enter to place">
     </div>
 
     <script>
@@ -345,7 +366,6 @@
             document.body.appendChild(d);
         };
     </script>
-    <script src="app.js?v=27"></script>
-</body>
+    <script type="module" src="js/core/App.js?v=37"></script>
 
 </html>

@@ -1,9 +1,8 @@
 /**
- * Server Entry Point (v4) — Time-Based Candles + Countdown
- * Changes from v3:
- * - Candle aggregation is now TIME-based (real seconds), not tick-count-based
- * - Broadcasts candle countdown state for each timeframe
- * - History pre-fill uses paginated fetch (3 pages × 5000 = ~4h)
+ * Server Entry Point (v1.0.1 Stable)
+ * - Fixed Engine Integration (Class-based)
+ * - Restored Analytics, Probability, Edge, and Reach Grid
+ * - Cleaned up Record/Replay bloat
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
@@ -12,10 +11,12 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
-
 const config = require('./config');
 const DerivClient = require('./derivClient');
 const TickStore = require('./tickStore');
+const { processTick, makeHistoryCandles, TIMEFRAMES } = require('./candleAggregator');
+
+// Engines (Classes)
 const VolatilityEngine = require('./volatilityEngine');
 const ProbabilityEngine = require('./probabilityEngine');
 const EdgeCalculator = require('./edgeCalculator');
@@ -28,54 +29,49 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static(path.join(__dirname, '..', 'client')));
 app.use('/lib', express.static(path.join(__dirname, '..', 'node_modules', 'lightweight-charts', 'dist')));
 
-// --- Core Components ---
-const primarySymbol = config.SYMBOLS.V100_1S;
-const tickStore = new TickStore(config.MAX_TICK_HISTORY);
-const derivClient = new DerivClient(primarySymbol);
-const volEngine = new VolatilityEngine(tickStore);
-const probEngine = new ProbabilityEngine(primarySymbol, volEngine);
+// --- Shared State ---
+const symbol = config.SYMBOLS.V100_1S;
+const deriv = new DerivClient(symbol);
+const store = new TickStore(config.MAX_TICK_HISTORY);
+const activeCandles = {};
+
+// Engine Instances
+const volEngine = new VolatilityEngine(store);
+const probEngine = new ProbabilityEngine(symbol, volEngine);
 const edgeCalc = new EdgeCalculator(volEngine);
 
-// --- State ---
-let tickCount = 0;
-let uiConfig = { barrier: 2.0, payoutROI: 109, direction: 'up' };
-let historySnapshot = null;
-let serverStartTime = Date.now();
-let gapEvents = 0;
 let lastTickTime = null;
+let gapEvents = 0;
 let historyReady = false;
-let pendingClients = [];
+let serverStartTime = Date.now();
 
-// Reach Grid Default State
+// Configs
+let uiConfig = { barrier: 2.0, payoutROI: 109, direction: 'up' };
 let reachGridConfig = {
     lookbackSec: 1800, // 30m default
     stride: 10,
-    mode: 'either' // either, up, down
+    mode: 'either'
 };
 
-const { TIMEFRAMES, makeTCandle, updateTCandle, processTick, makeHistoryCandles } = require('./candleAggregator');
+// --- WebSocket Utilities ---
+function broadcast(type, data) {
+    const msg = JSON.stringify({ type, data });
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN) client.send(msg);
+    });
+}
 
-// Active candles keyed by timeframe label
-const activeCandles = {};
-
-// --- WebSocket ---
+// --- WebSocket Connection ---
 wss.on('connection', (ws) => {
-    console.log('[UI] Client connected');
+    console.log(`[WS] Client connected (${wss.clients.size} total)`);
+
+    ws.send(JSON.stringify({ type: 'symbol', data: symbol }));
     ws.send(JSON.stringify({ type: 'config', data: uiConfig }));
-    ws.send(JSON.stringify({ type: 'symbol', data: primarySymbol }));
 
-    // Build a fresh history snapshot every time a client connects,
-    // so there is never a gap between history end and live data start.
-    if (!historyReady) {
-        console.log('[UI] Client queued, waiting for history download...');
-        pendingClients.push(ws);
-        return; // Don't send empty history
-    }
-
-    const allTicks = tickStore.getAll();
-    if (allTicks.length > 0) {
+    if (store.getSize() > 0) {
+        const allTicks = store.getAll();
         const candles = makeHistoryCandles(allTicks);
-        const freshSnapshot = {
+        const snapshot = {
             historicalTicks: allTicks.map(t => ({ time: t.epoch, value: t.quote })),
             historicalC5s: candles['5s'],
             historicalC10s: candles['10s'],
@@ -85,9 +81,7 @@ wss.on('connection', (ws) => {
             historicalC2m: candles['2m'],
             historicalC5m: candles['5m'],
         };
-        ws.send(JSON.stringify({ type: 'history', data: freshSnapshot }));
-    } else if (historySnapshot) {
-        ws.send(JSON.stringify({ type: 'history', data: historySnapshot }));
+        ws.send(JSON.stringify({ type: 'history', data: snapshot }));
     }
 
     ws.on('message', (msg) => {
@@ -95,176 +89,130 @@ wss.on('connection', (ws) => {
             const packet = JSON.parse(msg);
             if (packet.type === 'update_config') {
                 if (packet.barrier !== undefined) uiConfig.barrier = packet.barrier;
-                if (packet.roi !== undefined) uiConfig.payoutROI = packet.roi;
-                if (packet.direction) uiConfig.direction = packet.direction;
-                console.log(`[Config] Barrier: ${uiConfig.barrier}, ROI: ${uiConfig.payoutROI}, Dir: ${uiConfig.direction}`);
+                if (packet.payoutROI !== undefined) uiConfig.payoutROI = packet.payoutROI;
+                if (packet.direction !== undefined) uiConfig.direction = packet.direction;
             }
-            if (packet.type === 'update_grid_config') {
-                if (packet.lookbackSec !== undefined) reachGridConfig.lookbackSec = packet.lookbackSec;
-                if (packet.stride !== undefined) reachGridConfig.stride = packet.stride;
-                if (packet.mode !== undefined) reachGridConfig.mode = packet.mode;
-                console.log(`[ReachGrid] Mode: ${reachGridConfig.mode}, Lookback: ${reachGridConfig.lookbackSec}s`);
+            if (packet.type === 'update_reach_config') {
+                if (packet.mode) reachGridConfig.mode = packet.mode;
+                if (packet.horizon) reachGridConfig.lookbackSec = packet.horizon;
             }
-        } catch (e) { }
+        } catch (e) {
+            console.error("[WS] Error parsing message:", e);
+        }
     });
 
-    ws.on('close', () => console.log('[UI] Client disconnected'));
+    ws.on('close', () => console.log('[WS] Client disconnected'));
 });
 
-function broadcast(msg) {
-    const str = JSON.stringify(msg);
-    wss.clients.forEach(c => { if (c.readyState === WebSocket.OPEN) c.send(str); });
-}
+// --- Deriv Tick Handler ---
+deriv.on('tick', (t) => {
+    if (!historyReady) return;
 
-// --- Deriv Stream ---
-console.log(`[System] Connecting to Deriv for ${primarySymbol}...`);
-
-derivClient.fetchHistory(5).then(history => {
-    if (history.length > 0) {
-        console.log(`[System] Pre-filling ${history.length} historical ticks...`);
-        for (const t of history) {
-            tickStore.addTick(t.epoch, t.quote);
-            tickCount++;
-        }
-        volEngine.update();
-        const candles = makeHistoryCandles(history);
-        historySnapshot = {
-            historicalTicks: history.map(t => ({ time: t.epoch, value: t.quote })),
-            historicalC5s: candles['5s'],
-            historicalC10s: candles['10s'],
-            historicalC15s: candles['15s'],
-            historicalC30s: candles['30s'],
-            historicalC1m: candles['1m'],
-            historicalC2m: candles['2m'],
-            historicalC5m: candles['5m'],
-        };
-        console.log(`[System] History ready — ticks: ${history.length}, 5s: ${candles['5s'].length}, 15s: ${candles['15s'].length}, 1m: ${candles['1m'].length}`);
-    }
-
-    historyReady = true;
-
-    // Flush pending queued clients
-    if (pendingClients.length > 0) {
-        console.log(`[System] Dispatching history to ${pendingClients.length} queued client(s)...`);
-        const str = JSON.stringify({ type: 'history', data: historySnapshot });
-        pendingClients.forEach(ws => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(str);
-        });
-        pendingClients = [];
-    }
-
-    derivClient.connect();
-});
-
-// --- Live Tick Handler ---
-derivClient.on('tick', (tick) => {
-    const price = tick.quote;
-    const epoch = tick.epoch;
-    tickCount++;
-
-    if (lastTickTime !== null && epoch - lastTickTime > 2.5) {
+    if (lastTickTime !== null && t.epoch - lastTickTime > 2.5) {
         gapEvents++;
     }
-    lastTickTime = epoch;
+    lastTickTime = t.epoch;
 
-    tickStore.addTick(epoch, price);
-    volEngine.update();
+    store.addTick(t.epoch, t.quote);
 
-    broadcast({ type: 'tick', data: { time: epoch, value: price } });
-
-    // Time-based candle processing
-    const closed = processTick(price, epoch, activeCandles);
-    for (const [label, candleData] of Object.entries(closed)) {
-        broadcast({ type: 'candle_closed', timeframe: label, data: candleData });
+    // Process closed candles
+    const closed = processTick(t.quote, t.epoch, activeCandles);
+    for (const [tf, c] of Object.entries(closed)) {
+        broadcast('candle_closed', { timeframe: tf, data: c });
     }
 
-    // Broadcast current forming candle for each timeframe (live candle movement)
-    for (const [label] of Object.entries(TIMEFRAMES)) {
+    // Update forming candles
+    for (const label of Object.keys(TIMEFRAMES)) {
         const c = activeCandles[label];
         if (c && c.o !== null) {
-            broadcast({
-                type: 'candle_update', timeframe: label, data: {
+            broadcast('candle_update', {
+                timeframe: label, data: {
                     time: c.openTime, open: c.o, high: c.h, low: c.l, close: c.c
                 }
             });
         }
     }
 
+    // Basic tick broadcast
+    broadcast('tick', { time: t.epoch, value: t.quote });
+
     // Broadcast countdown state for all timeframes
-    const now = epoch;
+    const now = t.epoch;
     const countdowns = {};
     for (const [label, secs] of Object.entries(TIMEFRAMES)) {
         const c = activeCandles[label];
-        countdowns[label] = {
-            remaining: Math.max(0, c.closeTime - now),
-            total: secs,
-            pct: Math.max(0, (c.closeTime - now) / secs)
-        };
+        if (c) {
+            countdowns[label] = {
+                remaining: Math.max(0, c.closeTime - now),
+                total: secs,
+                pct: Math.max(0, (c.closeTime - now) / secs)
+            };
+        }
     }
-    broadcast({ type: 'countdown', data: countdowns });
-});
+    broadcast('countdown', countdowns);
 
-// --- Analytics Broadcast ---
-setInterval(() => {
-    const ticks = tickStore.getAll();
-    if (ticks.length === 0) return;
-    const currentPrice = ticks[ticks.length - 1].quote;
+    // Update Engines
+    volEngine.update();
 
-    const probUp = probEngine.estimate(uiConfig.barrier, currentPrice, 'up');
-    const probDown = probEngine.estimate(uiConfig.barrier, currentPrice, 'down');
-    const edgeUp = edgeCalc.analyze(probUp, uiConfig.payoutROI, tickCount);
-    const edgeDown = edgeCalc.analyze(probDown, uiConfig.payoutROI, tickCount);
-    const active = uiConfig.direction === 'up' ? edgeUp : edgeDown;
+    // Broadcast Analytics
+    const probData = probEngine.estimate(uiConfig.barrier, t.quote, uiConfig.direction);
+    const edgeData = edgeCalc.analyze(probData, uiConfig.payoutROI, store.getSize());
 
-    broadcast({
-        type: 'analytics',
-        data: {
-            symbol: primarySymbol,
-            price: currentPrice,
-            tickCount,
-            warmupProgress: Math.min(tickCount / config.WARMUP_TICKS, 1),
-            warmupDone: tickCount >= config.WARMUP_TICKS,
-            volatility: volEngine.getSnapshot(),
-            direction: uiConfig.direction,
-            barrier: uiConfig.barrier,
-            payoutROI: uiConfig.payoutROI,
-            active,
-            serverStats: {
-                uptime: Math.floor((Date.now() - serverStartTime) / 1000),
-                memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
-                connections: wss.clients.size,
-                gaps: gapEvents
-            }
+    broadcast('analytics', {
+        price: t.quote,
+        tickCount: store.getSize(),
+        volatility: volEngine.getSnapshot(),
+        active: edgeData,
+        warmupProgress: Math.min(1, store.getSize() / config.WARMUP_TICKS),
+        serverStats: {
+            uptime: Math.round((Date.now() - serverStartTime) / 1000),
+            memory: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+            connections: wss.clients.size,
+            gaps: gapEvents
         }
     });
-}, config.DASHBOARD_UPDATE_INTERVAL);
+});
 
-// --- Reach Grid Broadcast ---
+// --- Reach Grid Broadcast (5s interval) ---
 setInterval(() => {
-    const ticks = tickStore.getAll();
+    if (!historyReady) return;
+    const ticks = store.getAll();
     if (ticks.length === 0) return;
 
-    // CPU-friendly config 
     const results = computeReachGrid(ticks, {
         lookbackSec: reachGridConfig.lookbackSec,
         stride: reachGridConfig.stride
     });
 
-    broadcast({
-        type: 'reach_grid',
-        data: {
-            symbol: primarySymbol,
-            ...reachGridConfig, // mode, lookbackSec, stride
-            matrix: results.matrix,
-            samplesPerHorizon: results.samplesPerHorizon,
-            distances: results.distances,
-            horizons: results.horizons,
-            timestamp: Math.floor(Date.now() / 1000)
-        }
+    broadcast('reach_grid', {
+        symbol,
+        ...reachGridConfig,
+        matrix: results.matrix,
+        samplesPerHorizon: results.samplesPerHorizon,
+        distances: results.distances,
+        horizons: results.horizons,
+        timestamp: Math.floor(Date.now() / 1000)
     });
+}, 5000);
 
-}, 5000); // Strict 5-second interval as defined by spec
+// --- Bootstrap ---
+console.log(`[System] Initializing for ${symbol}...`);
+
+deriv.fetchHistory(5).then(history => {
+    if (history.length > 0) {
+        console.log(`[System] Pre-filling ${history.length} historical ticks...`);
+        for (const t of history) {
+            store.addTick(t.epoch, t.quote);
+        }
+        volEngine.update(); // Initialize vol engine with historical data
+    }
+    historyReady = true;
+    console.log(`[System] Starting live stream...`);
+    deriv.connect();
+}).catch(err => {
+    console.error(`[System] Init failed:`, err);
+});
 
 server.listen(config.PORT, '0.0.0.0', () => {
-    console.log(`[System] Dashboard → http://localhost:${config.PORT} (IPv4)`);
+    console.log(`[Server] Stable v1.0.1 running on http://localhost:${config.PORT}`);
 });

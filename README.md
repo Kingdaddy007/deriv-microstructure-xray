@@ -1,48 +1,70 @@
-# Touch Edge System — Micro-Structure X-Ray
+# Micro-Structure X-Ray v1.0.0
 
-A real-time micro-structure visualizer for Deriv synthetic indices (V100 1s, V75 1s). Built for manual traders who want to see micro-candle timeframes (5s, 10s, 15s) and volatility diagnostics that Deriv's platform doesn't expose.
+A high-frequency trading visualization terminal for Deriv, focused on microstructure analysis, liquidity levels, and backtesting.
 
-## What It Does
+## 🚀 Features
 
-- **Live tick stream** from Deriv WebSocket API
-- **5s, 10s, 15s candle charts** built from raw ticks (TradingView Lightweight Charts)
-- **Historical pre-fill** on startup — loads past ticks so charts aren't blank
-- **Volatility diagnostics** — log-return σ across 5 windows, Vol Ratio, Vol Trend
-- **Probability analysis** — GBM theoretical + empirical database lookup (88k+ samples)
-- **Flexible grid view** — choose any candle timeframe for each panel
-- **Neutral display** — raw data only, no prescriptive signals. Decision stays with you.
+- **Real-time Visualization**: High-performance charting using Lightweight Charts.
+- **Microstructure Overlays**: 5m and 15m block quadrants and liquidity levels (H/L/Mid50).
+- **Backtesting Mode**: Scroll back to enter `VIEW` mode. Levels are calculated with a context-aware offset so you can study price reaction.
+- **Modular Design**: Clean ES6 module structure for easy maintenance and low token usage.
+- **Multi-view Support**: Split-pane grid for comparing timeframes side-by-side.
 
-## Tech Stack
+## 🛠️ Installation
 
-- **Backend:** Node.js, Express, ws (WebSocket)
-- **Frontend:** Vanilla JS, TradingView Lightweight Charts
-- **DB:** better-sqlite3 (local empirical tick dataset)
-- **Source:** Deriv WebSocket API (wss://ws.derivws.com)
+1. **Clone the repository**:
 
-## Prerequisites
+    ```bash
+    git clone [repository-url]
+    cd touch-edge-system
+    ```
 
-- Node.js v18+
-- npm
+2. **Install dependencies**:
 
-## Install & Run
+    ```bash
+    npm install
+    ```
+
+3. **Configure Environment**:
+    Create a `.env` file in the root directory:
+
+    ```env
+    DERIV_TOKEN=your_api_token_here
+    APP_ID=your_app_id_here
+    ```
+
+4. **Run the application**:
+
+    ```bash
+    npm start
+    ```
+
+    The dashboard will be available at `http://localhost:8080`.
+
+## 📈 Guide
+
+### LIVE vs VIEW Mode
+
+- **LIVE** (Blue Badge): The chart is at the current edge. Overlays update in real-time.
+- **VIEW** (Amber Badge): Triggered when you scroll back more than 1 minute.
+  - **Focus Point**: Levels are computed based on historical focus (e.g., 10-15 mins before the visible edge).
+  - **Right Context**: Levels are drawn forward to the visible edge so you can see "future" price interaction.
+
+### Controls
+
+- **Sidebar**: Adjust Barrier, ROI, and toggle Overlays.
+- **Bottom Toolbar**: Drawing tools (Rectangle, Trendline, etc.) and Color Picker.
+- **Tabs**: Switch between single timeframe views, the Split Grid, or the Reach Grid.
+
+## 🧪 Testing
+
+Run unit tests with:
 
 ```bash
-git clone <this-repo>
-cd touch-edge-system
-npm install
-node server/index.js
+npm test
 ```
 
-Then open **<http://localhost:8080>** in your browser.
+## ⚠️ Maintenance
 
-## Configuration
-
-Edit `server/config.js` to change:
-
-- `SYMBOLS` — which Deriv synthetic index to watch
-- `WARMUP_TICKS` — how many ticks before probability calculations activate
-- `VOL_WINDOWS` — volatility rolling window sizes
-
-## Note
-
-This tool does **not** place trades. It is a decision-support visualizer only. All trade execution remains on DTrader.
+- **Tick Buffers**: Capped at 3600 ticks to ensure performance.
+- **Memory**: The system is designed for single-session use. Refresh to clear long-term memory.

@@ -7,7 +7,12 @@ module.exports = {
     // Deriv API Configuration
     DERIV_APP_ID: process.env.DERIV_APP_ID || 1089,
     DERIV_API_TOKEN: process.env.DERIV_API_TOKEN || '',
-    DERIV_WS_URL: 'wss://ws.derivws.com/websockets/v3',
+
+    // Fallback URLs to cycle through if connection fails (bypasses ISP/TLS blocks)
+    DERIV_WS_URLS: [
+        'wss://ws.derivws.com/websockets/v3',
+        'wss://ws.binaryws.com/websockets/v3'
+    ],
 
     // Target Symbols
     SYMBOLS: {
