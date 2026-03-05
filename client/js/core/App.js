@@ -540,7 +540,8 @@ function handleAnalytics(d) {
     }
 }
 
-const wsUrl = `ws://${window.location.hostname}:${window.location.port || 8080}`;
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const wsUrl = `${protocol}//${window.location.host}`;
 let ws;
 let reconnectAttempts = 0;
 
