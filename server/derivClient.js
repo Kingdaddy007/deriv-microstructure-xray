@@ -1,11 +1,13 @@
 /**
- * DerivClient (v2)
+ * DerivClient (v3)
  *
  * Manages the WebSocket connection to Deriv's API.
  * Features:
  * - Pre-fills historical ticks on startup (ticks_history API)
  * - Subscribes to live tick stream
  * - Emits 'tick' events for each incoming price
+ * - Generic sendRequest() for proposal/buy/any API call
+ * - Emits proposal_open_contract updates for tracked contracts
  * - Automatic reconnection with exponential backoff
  */
 
@@ -157,9 +159,35 @@ class DerivClient extends EventEmitter {
             try {
                 const msg = JSON.parse(data.toString());
 
+                // Route req_id responses to pending request callbacks (proposal, buy, etc.)
+                if (msg.req_id && this._pendingRequests[msg.req_id]) {
+                    const { resolve, reject } = this._pendingRequests[msg.req_id];
+                    delete this._pendingRequests[msg.req_id];
+                    if (msg.error) {
+                        console.error(`[DerivClient] Request ${msg.req_id} failed: ${msg.error.message}`);
+                        reject(msg.error);
+                    } else {
+                        resolve(msg);
+                    }
+                    return;
+                }
+
                 if (msg.error) {
                     console.error(`[DerivClient] API Error: ${msg.error.message}`);
                     return;
+                }
+
+                // Capture authorize response — emit event so other modules can use account info
+                if (msg.msg_type === 'authorize' && msg.authorize) {
+                    const acctInfo = msg.authorize;
+                    const isVirtual = acctInfo.is_virtual;
+                    const loginId = acctInfo.loginid;
+                    const acctType = isVirtual ? 'DEMO/VIRTUAL' : 'REAL';
+                    console.log(`[DerivClient] ✓ AUTHORIZE SUCCESS`);
+                    console.log(`[DerivClient]   Account Type: ${acctType}`);
+                    console.log(`[DerivClient]   Login ID: ${loginId}`);
+                    console.log(`[DerivClient]   Email: ${acctInfo.email || 'N/A'}`);
+                    this.emit('authorize', { isVirtual, loginId, email: acctInfo.email, currency: acctInfo.currency, balance: acctInfo.balance });
                 }
 
                 if (msg.msg_type === 'tick' && msg.tick) {
@@ -169,6 +197,10 @@ class DerivClient extends EventEmitter {
                         epoch: t.epoch,
                         quote: t.quote
                     });
+                }
+
+                if (msg.msg_type === 'proposal_open_contract' && msg.proposal_open_contract) {
+                    this.emit('proposal_open_contract', msg.proposal_open_contract);
                 }
             } catch (e) {
                 console.error(`[DerivClient] Failed to parse message:`, e);
@@ -207,6 +239,33 @@ class DerivClient extends EventEmitter {
             this.reconnectAttempts++;
             this.connect();
         }, delay);
+    }
+
+    /**
+     * Send any request to the Deriv API. Returns a Promise resolved with the response.
+     * Uses req_id for response matching — safe for concurrent requests.
+     * @param {Object} payload - The API request payload (e.g. { proposal: 1, ... })
+     * @param {number} [timeoutMs=15000] - Timeout in ms
+     * @returns {Promise<Object>} - The Deriv API response
+     */
+    sendRequest(payload, timeoutMs = 15000) {
+        const reqId = this._reqId++;
+        return new Promise((resolve, reject) => {
+            if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                return reject(new Error('WebSocket not connected'));
+            }
+            // Auto-cleanup on timeout
+            const timer = setTimeout(() => {
+                delete this._pendingRequests[reqId];
+                reject(new Error(`Request ${reqId} timed out after ${timeoutMs}ms`));
+            }, timeoutMs);
+
+            this._pendingRequests[reqId] = {
+                resolve: (msg) => { clearTimeout(timer); resolve(msg); },
+                reject: (err) => { clearTimeout(timer); reject(err); }
+            };
+            this.ws.send(JSON.stringify({ ...payload, req_id: reqId }));
+        });
     }
 
     disconnect() {

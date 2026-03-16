@@ -5,20 +5,26 @@ const path = require('path');
 
 module.exports = {
     // Deriv API Configuration
-    DERIV_APP_ID: process.env.DERIV_APP_ID || 1089,
-    DERIV_API_TOKEN: process.env.DERIV_API_TOKEN || '',
+    DERIV_APP_ID: process.env.DERIV_APP_ID || process.env.APP_ID || 1089,
+    DERIV_API_TOKEN: process.env.DERIV_API_TOKEN || process.env.DERIV_TOKEN || '',
 
     // Fallback URLs to cycle through if connection fails (bypasses ISP/TLS blocks)
     DERIV_WS_URLS: [
         'wss://ws.derivws.com/websockets/v3',
         'wss://ws.binaryws.com/websockets/v3'
     ],
+    
+    // For legacy scripts
+    DERIV_WS_URL: 'wss://ws.derivws.com/websockets/v3',
 
     // Target Symbols
     SYMBOLS: {
         V75_1S: '1HZ75V',
         V100_1S: '1HZ100V'
     },
+
+    // Default history window (days)
+    HISTORY_DAYS: 7,
 
     // Tick Buffer Size (~8.3 hours of 1-second ticks)
     MAX_TICK_HISTORY: 30000,

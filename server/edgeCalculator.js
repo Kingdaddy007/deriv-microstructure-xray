@@ -36,10 +36,10 @@ class EdgeCalculator {
 
         return {
             impliedProb,
-            ourProb: ourProb ?? 0,
+            ourProb: ourProb ?? null,
             theoretical: probEstimate.theoretical,
             empirical: probEstimate.empirical,
-            edge: edge ?? 0,
+            edge: edge ?? null,
             warnings,
             sampleSize: probEstimate.sampleSize
         };

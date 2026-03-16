@@ -78,6 +78,46 @@ export default class TimeBlockOverlay {
         this.requestRender();
     }
 
+    _isLightMode() {
+        return document.body.classList.contains('light-mode');
+    }
+
+    _controlTheme() {
+        return this._isLightMode()
+            ? {
+                border: '1px solid rgba(15,23,42,.12)',
+                background: 'rgba(255,255,255,.92)',
+                color: 'rgba(15,23,42,.78)',
+                active5m: 'rgba(37,99,235,.75)',
+                active15m: 'rgba(217,119,6,.78)',
+                liveBg: 'rgba(37,99,235,0.14)',
+                liveBorder: '1px solid rgba(37,99,235,0.34)',
+                liveColor: '#1d4ed8',
+                viewBg: 'rgba(217,119,6,0.14)',
+                viewBorder: '1px solid rgba(217,119,6,0.32)',
+                viewColor: '#b45309'
+            }
+            : {
+                border: '1px solid rgba(255,255,255,.15)',
+                background: 'rgba(0,0,0,.35)',
+                color: 'rgba(255,255,255,.85)',
+                active5m: 'rgba(56,139,253,.55)',
+                active15m: 'rgba(245,158,11,.65)',
+                liveBg: 'rgba(56,139,253,0.3)',
+                liveBorder: '1px solid rgba(56,139,253,0.6)',
+                liveColor: '#fff',
+                viewBg: 'rgba(240,185,11,0.3)',
+                viewBorder: '1px solid rgba(240,185,11,0.6)',
+                viewColor: '#fff'
+            };
+    }
+
+    refreshTheme() {
+        if (typeof this._syncToggleTheme === 'function') this._syncToggleTheme();
+        if (typeof this._updateBadgeUI === 'function') this._updateBadgeUI();
+        this.requestRender();
+    }
+
     _setDefaults() {
         // Map to your desired defaults
         // tick chart: intervalSec can be 1 (or special)
@@ -142,17 +182,18 @@ export default class TimeBlockOverlay {
             b.style.font = '12px Inter, system-ui, sans-serif';
             b.style.padding = '4px 8px';
             b.style.borderRadius = '6px';
-            b.style.border = '1px solid rgba(255,255,255,.15)';
-            b.style.background = 'rgba(0,0,0,.35)';
-            b.style.color = 'rgba(255,255,255,.85)';
             b.style.cursor = 'pointer';
             b.textContent = label;
 
             const sync = () => {
-                b.style.borderColor = 'rgba(255,255,255,.15)';
+                const theme = this._controlTheme();
+                b.style.border = theme.border;
+                b.style.background = theme.background;
+                b.style.color = theme.color;
+                b.style.borderColor = theme.border.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(255,255,255,.15)';
                 if (getter()) {
-                    if (activeClass === 'active-5m') b.style.borderColor = 'rgba(56,139,253,.55)';
-                    if (activeClass === 'active-15m') b.style.borderColor = 'rgba(245,158,11,.65)';
+                    if (activeClass === 'active-5m') b.style.borderColor = theme.active5m;
+                    if (activeClass === 'active-15m') b.style.borderColor = theme.active15m;
                 }
             };
             sync();
@@ -168,6 +209,20 @@ export default class TimeBlockOverlay {
 
         const btn5 = mkBtn('5m', () => this.enabled5m, (v) => this.enabled5m = v, 'active-5m');
         const btn15 = mkBtn('15m', () => this.enabled15m, (v) => this.enabled15m = v, 'active-15m');
+        const sync5 = () => {
+            const theme = this._controlTheme();
+            btn5.style.border = theme.border;
+            btn5.style.background = theme.background;
+            btn5.style.color = theme.color;
+            btn5.style.borderColor = this.enabled5m ? theme.active5m : (theme.border.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(255,255,255,.15)');
+        };
+        const sync15 = () => {
+            const theme = this._controlTheme();
+            btn15.style.border = theme.border;
+            btn15.style.background = theme.background;
+            btn15.style.color = theme.color;
+            btn15.style.borderColor = this.enabled15m ? theme.active15m : (theme.border.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(255,255,255,.15)');
+        };
 
         // Depth selector button
         const btnDepth = document.createElement('button');
@@ -175,11 +230,14 @@ export default class TimeBlockOverlay {
         btnDepth.style.font = '12px Inter, system-ui, sans-serif';
         btnDepth.style.padding = '4px 8px';
         btnDepth.style.borderRadius = '6px';
-        btnDepth.style.border = '1px solid rgba(255,255,255,.15)';
-        btnDepth.style.background = 'rgba(0,0,0,.35)';
-        btnDepth.style.color = 'rgba(255,255,255,.85)';
         btnDepth.style.cursor = 'pointer';
-        const syncDepth = () => { btnDepth.textContent = `[${this.blockDepth}]`; };
+        const syncDepth = () => {
+            const theme = this._controlTheme();
+            btnDepth.textContent = `[${this.blockDepth}]`;
+            btnDepth.style.border = theme.border;
+            btnDepth.style.background = theme.background;
+            btnDepth.style.color = theme.color;
+        };
         syncDepth();
         btnDepth.onclick = (e) => {
             e.stopPropagation();
@@ -200,17 +258,29 @@ export default class TimeBlockOverlay {
         badge.style.alignItems = 'center';
 
         this._updateBadgeUI = () => {
+            const theme = this._controlTheme();
             if (this._effectiveMode === 'LIVE') {
                 badge.textContent = 'LIVE';
-                badge.style.background = 'rgba(56,139,253,0.3)'; // blue
-                badge.style.border = '1px solid rgba(56,139,253,0.6)';
+                badge.style.background = theme.liveBg;
+                badge.style.border = theme.liveBorder;
+                badge.style.color = theme.liveColor;
             } else {
                 badge.textContent = 'VIEW';
-                badge.style.background = 'rgba(240,185,11,0.3)'; // amber
-                badge.style.border = '1px solid rgba(240,185,11,0.6)';
+                badge.style.background = theme.viewBg;
+                badge.style.border = theme.viewBorder;
+                badge.style.color = theme.viewColor;
             }
         };
         this._updateBadgeUI();
+
+        this._syncToggleTheme = () => {
+            sync5();
+            sync15();
+            syncDepth();
+            this._updateBadgeUI();
+        };
+        sync5();
+        sync15();
 
         wrap.appendChild(btn5);
         wrap.appendChild(btn15);
@@ -225,13 +295,16 @@ export default class TimeBlockOverlay {
         const thresholdSec = 60; // Increased threshold for mode switching (1 min)
 
         let viewRightT = actualLastT;
+        let focusT = actualLastT;
         let mode = 'LIVE';
 
         try {
             const lr = this.chart.timeScale().getVisibleLogicalRange();
             if (lr) {
                 const toIdx = Math.min(data.length - 1, Math.max(0, Math.floor(lr.to)));
+                const focusIdx = Math.min(data.length - 1, Math.max(0, Math.floor(lr.from + ((lr.to - lr.from) * 0.6))));
                 let vT = getPointTimeSec(data[toIdx]);
+                let fT = getPointTimeSec(data[focusIdx]);
 
                 if (vT != null) {
                     vT = Math.min(vT, actualLastT);
@@ -239,6 +312,7 @@ export default class TimeBlockOverlay {
                     if ((actualLastT - vT) > thresholdSec) {
                         viewRightT = vT;
                         mode = 'VIEW';
+                        if (fT != null) focusT = Math.min(fT, actualLastT);
                     }
                 }
             }
@@ -252,12 +326,8 @@ export default class TimeBlockOverlay {
         this._effectiveMode = mode;
         if (this._updateBadgeUI) this._updateBadgeUI();
 
-        const firstT = getPointTimeSec(data[0]) || 0;
-
-        // focusT_5m  = viewRightT - 2*300
-        // focusT_15m = viewRightT - 1*900
-        const focusT5m = Math.max(firstT, viewRightT - 2 * 300);
-        const focusT15m = Math.max(firstT, viewRightT - 1 * 900);
+        const focusT5m = mode === 'VIEW' ? focusT : viewRightT;
+        const focusT15m = mode === 'VIEW' ? focusT : viewRightT;
 
         return { viewRightT, focusT5m, focusT15m, mode };
     }
@@ -321,26 +391,40 @@ export default class TimeBlockOverlay {
 
         // Draw order: 15m behind, then 5m
         if (this.enabled15m) this._drawBlocks(data, 900, anchors, {
-            stripes: [
-                'rgba(248,81,73,0.14)',  // red
-                'rgba(88,166,255,0.14)', // blue
-                'rgba(63,185,80,0.14)',  // green
-                'rgba(163,113,247,0.14)',// purple
-            ],
-            border: 'rgba(240,185,11,0.3)',
-            borderCurrent: 'rgba(240,185,11,0.6)',
+            stripes: this._isLightMode()
+                ? [
+                    'rgba(239,68,68,0.12)',
+                    'rgba(59,130,246,0.12)',
+                    'rgba(34,197,94,0.12)',
+                    'rgba(249,115,22,0.1)',
+                ]
+                : [
+                    'rgba(248,81,73,0.08)',
+                    'rgba(88,166,255,0.08)',
+                    'rgba(63,185,80,0.08)',
+                    'rgba(163,113,247,0.08)',
+                ],
+            border: this._isLightMode() ? 'rgba(180,83,9,0.45)' : 'rgba(240,185,11,0.3)',
+            borderCurrent: this._isLightMode() ? 'rgba(180,83,9,0.82)' : 'rgba(240,185,11,0.6)',
             label: '15m',
         });
 
         if (this.enabled5m) this._drawBlocks(data, 300, anchors, {
-            stripes: [
-                'rgba(248,81,73,0.14)',  // red
-                'rgba(88,166,255,0.14)', // blue
-                'rgba(63,185,80,0.14)',  // green
-                'rgba(163,113,247,0.14)',// purple
-            ],
-            border: 'rgba(56,139,253,0.3)',
-            borderCurrent: 'rgba(56,139,253,0.6)',
+            stripes: this._isLightMode()
+                ? [
+                    'rgba(239,68,68,0.12)',
+                    'rgba(59,130,246,0.12)',
+                    'rgba(34,197,94,0.12)',
+                    'rgba(168,85,247,0.1)',
+                ]
+                : [
+                    'rgba(248,81,73,0.08)',
+                    'rgba(88,166,255,0.08)',
+                    'rgba(63,185,80,0.08)',
+                    'rgba(163,113,247,0.08)',
+                ],
+            border: this._isLightMode() ? 'rgba(37,99,235,0.42)' : 'rgba(56,139,253,0.3)',
+            borderCurrent: this._isLightMode() ? 'rgba(29,78,216,0.8)' : 'rgba(56,139,253,0.6)',
             label: '5m',
         });
 
@@ -353,9 +437,11 @@ export default class TimeBlockOverlay {
 
         const { viewRightT, mode } = anchors;
         const focusT = blockSec === 300 ? anchors.focusT5m : anchors.focusT15m;
+        const focusBlock = Math.floor(focusT / blockSec) * blockSec;
+        const oldestShownBlock = focusBlock - Math.max(0, this.blockDepth) * blockSec;
 
-        // Last hour window based on focus
-        const cutoffT = focusT - 3600;
+        // Sweep only around the requested block depth to keep LIVE anchors accurate.
+        const cutoffT = oldestShownBlock;
         const sweepFromT = cutoffT - blockSec;
         const sweepFromIdx = Math.max(0, lowerBoundTime(data, sweepFromT));
 
@@ -366,6 +452,7 @@ export default class TimeBlockOverlay {
             if (t == null) continue;
             const bStart = Math.floor(t / blockSec) * blockSec;
             if (bStart < cutoffT) continue;
+            if (bStart > focusBlock) continue;
             if (bStart >= focusT && mode === 'VIEW') break; // Don't agg "future" blocks in VIEW mode
 
             const hl = getPointHighLow(data[i]);
@@ -376,6 +463,26 @@ export default class TimeBlockOverlay {
             else {
                 if (hl.high > cur.max) cur.max = hl.high;
                 if (hl.low < cur.min) cur.min = hl.low;
+            }
+        }
+
+        // --- DEBUG PRINT FOR 5M BOUNDARY ---
+        if (blockSec === 300 && mode === 'LIVE' && data.length > 5) {
+            const lastBar = data[data.length - 1];
+            const lastT = getPointTimeSec(lastBar);
+            if (lastT % 300 < 30) { // Within 30s of a new boundary
+                const boundary = Math.floor(lastT / 300) * 300;
+                if (this._lastDebugBoundary !== boundary) {
+                    this._lastDebugBoundary = boundary;
+                    console.group(`%c 5M BOUNDARY TRANSITION: ${new Date(boundary * 1000).toISOString()} `, 'background: #222; color: #bada55');
+                    for (let i = data.length - 5; i < data.length; i++) {
+                        const b = data[i];
+                        const t = getPointTimeSec(b);
+                        const bStart = Math.floor(t / 300) * 300;
+                        console.log(`Bar[${i}] t=${t} (${new Date(t * 1000).getUTCMinutes()}:${new Date(t * 1000).getUTCSeconds()}) -> blockStart=${bStart}, OHLC: ${b.open}/${b.high}/${b.low}/${b.close}`);
+                    }
+                    console.groupEnd();
+                }
             }
         }
 
@@ -395,6 +502,7 @@ export default class TimeBlockOverlay {
 
         for (let bStart = startBlock; bStart <= endBlock; bStart += blockSec) {
             if (bStart < cutoffT) continue;
+            if (bStart > focusBlock) continue;
             const a = agg.get(bStart);
             if (!a) continue;
 
@@ -403,8 +511,8 @@ export default class TimeBlockOverlay {
             if (yTop == null || yBot == null) continue;
 
             const bEnd = bStart + blockSec;
-            // Draw box up to either block end OR viewRightT (the visible edge)
-            const lineRightT = Math.min(bEnd, viewRightT);
+            // Draw box up to either block end OR viewRightT + 1 interval (to avoid clipping last bar)
+            const lineRightT = Math.min(bEnd, viewRightT + (this.intervalSec || 1));
 
             const x1 = boundaryTimeToX_edge(timeScale, data, bStart);
             const x2 = boundaryTimeToX_edge(timeScale, data, lineRightT);
@@ -439,7 +547,7 @@ export default class TimeBlockOverlay {
                 this.ctx.fillRect(qL, yTop, Math.max(1, qR - qL), hBox);
             }
 
-            const isCurrent = (mode === 'LIVE' && bStart === Math.floor(getPointTimeSec(data[data.length - 1]) / blockSec) * blockSec);
+            const isCurrent = bStart === focusBlock;
             this.ctx.strokeStyle = isCurrent ? theme.borderCurrent : theme.border;
             this.ctx.lineWidth = 1;
             this.ctx.setLineDash([4, 4]);

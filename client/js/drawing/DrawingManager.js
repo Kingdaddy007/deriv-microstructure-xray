@@ -10,6 +10,37 @@ function distToSegment(px, py, x1, y1, x2, y2, isRay) {
     return Math.hypot(px - (x1 + t * (x2 - x1)), py - (y1 + t * (y2 - y1)));
 }
 
+// ── Shared RAF Loop ──
+// All DrawingManager instances register here. One RAF loop renders all visible ones.
+const _allInstances = new Set();
+let _rafRunning = false;
+
+function _sharedRafLoop() {
+    for (const dm of _allInstances) {
+        // Only render if the container is attached and visible (has dimensions)
+        if (dm.container && dm.container.offsetWidth > 0 && dm.container.offsetHeight > 0) {
+            dm._render();
+        }
+    }
+    if (_allInstances.size > 0) {
+        requestAnimationFrame(_sharedRafLoop);
+    } else {
+        _rafRunning = false;
+    }
+}
+
+function _registerInstance(instance) {
+    _allInstances.add(instance);
+    if (!_rafRunning) {
+        _rafRunning = true;
+        requestAnimationFrame(_sharedRafLoop);
+    }
+}
+
+function _unregisterInstance(instance) {
+    _allInstances.delete(instance);
+}
+
 export default class DrawingManager {
     constructor(chartObj, seriesObj, containerId, sharedDrawings = [], intervalSec = 1) {
         this.chart = chartObj;
@@ -49,8 +80,8 @@ export default class DrawingManager {
         this.container.addEventListener('mouseup', e => this._onUp(e), true);
         this.container.addEventListener('dblclick', e => this._onDbl(e), true);
 
-        const render = () => { this._render(); requestAnimationFrame(render); };
-        requestAnimationFrame(render);
+        // Register with shared RAF loop instead of creating our own
+        _registerInstance(this);
     }
 
     setTool(tool) {

@@ -13,11 +13,11 @@ export function setCurrentSymbol(v) { currentSymbol = v; }
 
 // ── Chart Theme ───────────────────────────────────────────────────
 export const THEME = {
-    layout: { background: { color: 'transparent' }, textColor: '#8b949e' },
-    grid: { vertLines: { color: '#30363d' }, horzLines: { color: '#30363d' } },
+    layout: { background: { color: 'transparent' }, textColor: '#6b7a8d' },
+    grid: { vertLines: { color: '#1e2a3a' }, horzLines: { color: '#1e2a3a' } },
     crosshair: { mode: 0 },   // 0 = Normal (allows free pan/scroll)
-    timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#30363d', rightOffset: 5 },
-    rightPriceScale: { borderColor: '#30363d' }
+    timeScale: { timeVisible: true, secondsVisible: true, borderColor: '#1e2a3a', rightOffset: 5 },
+    rightPriceScale: { borderColor: '#1e2a3a' }
 };
 export const CANDLE_OPTS = { upColor: '#3fb950', downColor: '#f85149', borderVisible: false, wickUpColor: '#3fb950', wickDownColor: '#f85149' };
 
@@ -62,12 +62,17 @@ export function lowerBoundTime(data, targetTimeSec) {
 }
 
 // ---------- Find main pane canvas (plot area) ----------
+// Exclude overlay canvases appended by our own code so we only
+// pick up LWC's internal rendering canvas.
+const _overlayClasses = ['timeblock-canvas', 'liqeq-canvas',
+    'trade-overlay-canvas', 'drawing-canvas'];
 export function findMainPaneCanvas(plotEl) {
     const canvases = plotEl.querySelectorAll('canvas');
     if (!canvases.length) return null;
     let best = null;
     let bestArea = -1;
     for (const c of canvases) {
+        if (_overlayClasses.some(cls => c.classList.contains(cls))) continue;
         const r = c.getBoundingClientRect();
         const area = r.width * r.height;
         if (area > bestArea) {

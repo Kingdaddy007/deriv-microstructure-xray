@@ -68,7 +68,7 @@ function initDatabase() {
 // ─── WebSocket Connection ──────────────────────────────────────────────────────
 function connectToDerivAPI() {
     return new Promise((resolve, reject) => {
-        const url = `${config.DERIV_WS_URL}?app_id=${config.DERIV_APP_ID}`;
+        const url = `${config.DERIV_WS_URLS[0]}?app_id=${config.DERIV_APP_ID}`;
         log('WS', `Connecting to ${url}`);
 
         const ws = new WebSocket(url);

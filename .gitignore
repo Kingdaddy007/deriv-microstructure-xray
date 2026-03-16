@@ -7,11 +7,6 @@ data/
 *.db-shm
 *.db-wal
 
-# Code export dumps
-MVP_CODE_EXPORT.txt
-MVP_CODE_EXPORT.md
-CODE_DUMP.md
-
 # Environment variables (never commit secrets)
 .env
 .env.local
@@ -30,5 +25,40 @@ npm-debug.log*
 .vscode/
 .idea/
 
-# Recordings (stabilization v1)
+# Recordings
 recordings/
+
+# Code export dumps (one-time snapshots)
+MVP_CODE_EXPORT.txt
+MVP_CODE_EXPORT.md
+CODE_DUMP.md
+
+# One-time migration & extraction scripts
+extract_*.js
+fix_classes.js
+inject_dm.js
+check_range.js
+check_ticks.js
+test_matrix.js
+test_range.js
+
+# Root-level copy of DrawingManager (real one is in client/js/drawing/)
+DrawingManager.js
+
+# Temp files
+temp_url.txt
+render_logs.json
+deploys.json
+
+# Nested project copy (accidental)
+touch-edge-system/
+
+# AI agent configuration (local only)
+.agents/
+
+# Local launcher
+Start-Dashboard.bat
+
+# Personal notes (not project docs)
+HONEST-ASSESSMENT-AI-SKILLS.md
+project_summary.md

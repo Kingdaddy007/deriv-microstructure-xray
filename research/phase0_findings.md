@@ -9,7 +9,7 @@
 ## 1. Tick Return Distribution
 
 | Metric | Value | Interpretation |
-|--------|-------|---------------|
+| --- | --- | --- |
 | Mean return | 5.4e-7 | Effectively zero drift |
 | Per-tick σ | 1.334e-4 | ~0.013% per second |
 | Skewness | 0.0009 | Perfectly symmetric |
@@ -23,7 +23,7 @@
 ## 2. Autocorrelation
 
 | Lag | Autocorrelation | Significant? |
-|-----|----------------|-------------|
+| --- | --- | --- |
 | 1 | -0.003 | ❌ No |
 | 2 | +0.003 | ❌ No |
 | 5 | +0.006 | ❌ No |
@@ -37,7 +37,7 @@
 ## 3. Volatility Regime Analysis
 
 | Metric | Value |
-|--------|-------|
+| --- | --- |
 | Min σ (120-tick) | 1.024e-4 |
 | Max σ (120-tick) | 1.690e-4 |
 | Max/Min ratio | **1.7x** |
@@ -49,7 +49,7 @@
 ### Regime-Conditioned Touch Rates (the critical test)
 
 | Barrier D | Low-Vol Touch+ | High-Vol Touch+ | Difference |
-|-----------|---------------|-----------------|-----------|
+| --- | --- | --- | --- |
 | 2.0 | 64.0% | 65.2% | +1.2% |
 | 3.0 | 51.7% | 50.9% | -0.8% |
 | 4.0 | 39.1% | 38.4% | -0.7% |
@@ -62,7 +62,7 @@
 ## 4. Empirical Touch Rates vs GBM Prediction
 
 | Barrier (abs) | GBM P(touch either) | Empirical P(touch either) | Gap |
-|--|--|--|--|
+| --- | --- | --- | --- |
 | 1.0 | 83.3% | 100.0% | +16.7% |
 | 2.0 | 67.3% | 99.4% | +32.1% |
 | 3.0 | 52.7% | 90.0% | +37.3% |
@@ -75,7 +75,7 @@
 ### One-Directional Touch Rates (what you actually trade)
 
 | Barrier D | Touch+ (Up only) | Touch- (Down only) |
-|-----------|-----------------|-------------------|
+| --- | --- | --- |
 | 2.0 | 64.4% | 61.3% |
 | 3.0 | 51.0% | 46.3% |
 | 4.0 | 38.7% | 34.2% |

@@ -53,14 +53,29 @@ describe('Candle Aggregator Logic', () => {
         // Tick 2 crosses 10005 boundary -> '5s' candle should close
         closed = processTick(1.25, 10006, activeCandles);
         expect(closed['5s']).toBeDefined();
-        expect(closed['5s'].time).toBe(10000);
-        expect(closed['5s'].open).toBe(1.23);
-        expect(closed['5s'].close).toBe(1.23); // Because the new price (1.25) belongs to the new candle
+        expect(closed['5s'][0].time).toBe(10000);
+        expect(closed['5s'][0].open).toBe(1.23);
+        expect(closed['5s'][0].close).toBe(1.23); // Because the new price (1.25) belongs to the new candle
         expect(closed['10s']).toBeUndefined(); // Still in 10s window
 
         // Verify active candle was reset
         expect(activeCandles['5s'].openTime).toBe(10005);
         expect(activeCandles['5s'].o).toBe(1.25); // New candle opened at new price
+    });
+
+    test('processTick fills skipped 5s buckets to prevent visible gaps', () => {
+        const activeCandles = { '5s': makeTCandle(5, 10000) };
+        updateTCandle(activeCandles['5s'], 100);
+
+        const closed = processTick(110, 10016, activeCandles);
+
+        expect(closed['5s']).toHaveLength(3);
+        expect(closed['5s'][0]).toMatchObject({ time: 10000, open: 100, high: 100, low: 100, close: 100 });
+        expect(closed['5s'][1]).toMatchObject({ time: 10005, open: 100, high: 100, low: 100, close: 100 });
+        expect(closed['5s'][2]).toMatchObject({ time: 10010, open: 100, high: 100, low: 100, close: 100 });
+        expect(activeCandles['5s'].openTime).toBe(10015);
+        expect(activeCandles['5s'].o).toBe(110);
+        expect(activeCandles['5s'].closeTime).toBe(10020);
     });
 
     test('makeHistoryCandles bulk builds correctly', () => {
@@ -79,11 +94,12 @@ describe('Candle Aggregator Logic', () => {
         // Bucket 2 (10005-10010): Ticks at 10006(102), 10008(90)
         // -> O:102, H:102, L:90, C:90
 
-        // Bucket 3 (10010-10015): Empty (skipped)
+        // Bucket 3 (10010-10015): Empty → gap-filled with flat candle from previous close (90)
+        // -> O:90, H:90, L:90, C:90
         // Bucket 4 (10015-10020): Tick at 10015(110)
         // -> O:110, H:110, L:110, C:110
 
-        expect(history['5s'].length).toBe(3);
+        expect(history['5s'].length).toBe(4);
 
         const c1 = history['5s'][0];
         expect(c1.time).toBe(10000);
@@ -99,10 +115,18 @@ describe('Candle Aggregator Logic', () => {
         expect(c2.low).toBe(90);
         expect(c2.close).toBe(90);
 
+        // Gap-filled flat candle
         const c3 = history['5s'][2];
-        expect(c3.time).toBe(10015);
-        expect(c3.open).toBe(110);
-        expect(c3.close).toBe(110);
+        expect(c3.time).toBe(10010);
+        expect(c3.open).toBe(90);
+        expect(c3.high).toBe(90);
+        expect(c3.low).toBe(90);
+        expect(c3.close).toBe(90);
+
+        const c4 = history['5s'][3];
+        expect(c4.time).toBe(10015);
+        expect(c4.open).toBe(110);
+        expect(c4.close).toBe(110);
 
         // 10s buckets:
         // Bucket 1 (10000-10010): 100, 105, 102, 90

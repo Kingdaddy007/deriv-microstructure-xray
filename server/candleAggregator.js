@@ -18,14 +18,41 @@ function processTick(price, epoch, activeCandles) {
         if (!activeCandles[label]) {
             activeCandles[label] = makeTCandle(secs, epoch);
         }
-        const candle = activeCandles[label];
-        if (epoch >= candle.closeTime) {
-            // Close and broadcast this candle
+        let candle = activeCandles[label];
+
+        while (epoch >= candle.closeTime) {
             if (candle.o !== null) {
-                closed[label] = { time: candle.openTime, open: candle.o, high: candle.h, low: candle.l, close: candle.c };
+                if (!closed[label]) closed[label] = [];
+                closed[label].push({ time: candle.openTime, open: candle.o, high: candle.h, low: candle.l, close: candle.c });
             }
-            activeCandles[label] = makeTCandle(secs, epoch);
+
+            const prevClose = candle.c;
+            const nextOpenTime = candle.closeTime;
+            const nextCloseTime = nextOpenTime + secs;
+
+            if (epoch >= nextCloseTime && prevClose !== null) {
+                candle = {
+                    openTime: nextOpenTime,
+                    closeTime: nextCloseTime,
+                    o: prevClose,
+                    h: prevClose,
+                    l: prevClose,
+                    c: prevClose
+                };
+                continue;
+            }
+
+            candle = {
+                openTime: nextOpenTime,
+                closeTime: nextCloseTime,
+                o: null,
+                h: -Infinity,
+                l: Infinity,
+                c: prevClose
+            };
         }
+
+        activeCandles[label] = candle;
         updateTCandle(activeCandles[label], price);
     }
     return closed;
@@ -45,6 +72,15 @@ function makeHistoryCandles(ticks) {
             if (!builders[label] || builders[label].openTime !== bucketTime) {
                 if (builders[label] && builders[label].o !== null) {
                     result[label].push({ time: builders[label].openTime, open: builders[label].o, high: builders[label].h, low: builders[label].l, close: builders[label].c });
+
+                    // Gap-fill: insert flat candles for any skipped buckets between
+                    // the previous candle and the current bucket, mirroring processTick().
+                    const prevClose = builders[label].c;
+                    let fillTime = builders[label].openTime + secs;
+                    while (fillTime < bucketTime) {
+                        result[label].push({ time: fillTime, open: prevClose, high: prevClose, low: prevClose, close: prevClose });
+                        fillTime += secs;
+                    }
                 }
                 builders[label] = { openTime: bucketTime, o: null, h: -Infinity, l: Infinity, c: null };
             }

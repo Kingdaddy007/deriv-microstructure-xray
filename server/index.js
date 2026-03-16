@@ -3,6 +3,7 @@
  * - Fixed Engine Integration (Class-based)
  * - Restored Analytics, Probability, Edge, and Reach Grid
  * - Cleaned up Record/Replay bloat
+ * - Added Diagnostic Handlers for Tick Store rejection and divergence
  */
 
 require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
@@ -21,6 +22,7 @@ const VolatilityEngine = require('./volatilityEngine');
 const ProbabilityEngine = require('./probabilityEngine');
 const EdgeCalculator = require('./edgeCalculator');
 const { computeReachGrid } = require('./reachGridEngine');
+const TradingEngine = require('./tradingEngine');
 
 const app = express();
 const server = http.createServer(app);
@@ -39,11 +41,20 @@ const activeCandles = {};
 const volEngine = new VolatilityEngine(store);
 const probEngine = new ProbabilityEngine(symbol, volEngine);
 const edgeCalc = new EdgeCalculator(volEngine);
+const tradingEngine = new TradingEngine(deriv);
+
+// Track account info for broadcasting to new clients
+let accountInfo = null;
+deriv.on('authorize', (info) => {
+    accountInfo = info;
+    broadcast('account_info', info);
+});
 
 let lastTickTime = null;
 let gapEvents = 0;
 let historyReady = false;
 let serverStartTime = Date.now();
+let nextClientId = 1;
 
 // Configs
 let uiConfig = { barrier: 2.0, payoutROI: 109, direction: 'up' };
@@ -61,12 +72,52 @@ function broadcast(type, data) {
     });
 }
 
+function sendToClient(clientId, type, data) {
+    const msg = JSON.stringify({ type, data });
+    let delivered = false;
+
+    wss.clients.forEach(client => {
+        if (client.readyState === WebSocket.OPEN && client._clientId === clientId) {
+            client.send(msg);
+            delivered = true;
+        }
+    });
+
+    return delivered;
+}
+
+tradingEngine.on('trade_outcome', (outcome) => {
+    const delivered = outcome.ownerId !== null && outcome.ownerId !== undefined
+        ? sendToClient(outcome.ownerId, 'trade_outcome', outcome)
+        : false;
+
+    if (!delivered) {
+        broadcast('trade_outcome', outcome);
+    }
+});
+
+// Forward live contract updates (open contract status changes) to client for real-time color coding
+tradingEngine.on('contract_update', (update) => {
+    const delivered = update.ownerId !== null && update.ownerId !== undefined
+        ? sendToClient(update.ownerId, 'contract_update', update)
+        : false;
+
+    if (!delivered) {
+        broadcast('contract_update', update);
+    }
+});
+
 // --- WebSocket Connection ---
 wss.on('connection', (ws) => {
+    ws._clientId = nextClientId++;
     console.log(`[WS] Client connected (${wss.clients.size} total)`);
 
     ws.send(JSON.stringify({ type: 'symbol', data: symbol }));
     ws.send(JSON.stringify({ type: 'config', data: uiConfig }));
+    // Send account info if already authorized
+    if (accountInfo) {
+        ws.send(JSON.stringify({ type: 'account_info', data: accountInfo }));
+    }
 
     if (store.getSize() > 0) {
         const allTicks = store.getAll();
@@ -96,6 +147,113 @@ wss.on('connection', (ws) => {
                 if (packet.mode) reachGridConfig.mode = packet.mode;
                 if (packet.horizon) reachGridConfig.lookbackSec = packet.horizon;
             }
+
+            // ── TRADING HANDLERS (isolated via TradingEngine) ──
+            if (packet.type === 'get_proposal') {
+                // Server-side sanity validation — no upper cap, just ensure valid input
+                const amount = parseFloat(packet.amount);
+                if (!Number.isFinite(amount) || amount < 0.35) {
+                    ws.send(JSON.stringify({ type: 'proposal_result', data: { error: 'Invalid stake amount. Must be a number >= $0.35.' } }));
+                    return;
+                }
+                const duration = parseInt(packet.duration);
+                if (!Number.isFinite(duration) || duration < 1) {
+                    ws.send(JSON.stringify({ type: 'proposal_result', data: { error: 'Invalid duration.' } }));
+                    return;
+                }
+
+                tradingEngine.getProposal({
+                    amount,
+                    contract_type: packet.contract_type,
+                    barrier: packet.barrier,
+                    duration,
+                    duration_unit: packet.duration_unit,
+                    basis: packet.basis,
+                    currency: accountInfo?.currency
+                }).then(result => {
+                    ws.send(JSON.stringify({ type: 'proposal_result', data: result }));
+                }).catch(err => {
+                    ws.send(JSON.stringify({ type: 'proposal_result', data: { error: err.message || err.code || 'Proposal failed' } }));
+                });
+            }
+
+            if (packet.type === 'execute_trade') {
+                tradingEngine.executeBuy(packet.proposalId, packet.maxPrice, ws._clientId)
+                    .then(result => {
+                        ws.send(JSON.stringify({ type: 'trade_result', data: result }));
+                    }).catch(err => {
+                        ws.send(JSON.stringify({ type: 'trade_error', data: { message: err.message || err.code || 'Trade execution failed' } }));
+                    });
+            }
+
+            // --- DIAGNOSTIC START ---
+            if (packet.type === 'debug_snapshot') {
+                const { blockStart } = packet;
+                const windowTicks = store.getAll().filter(t => t.epoch >= blockStart - 15 && t.epoch <= blockStart + 315);
+                global.__debugSnapshot = {
+                    blockStart,
+                    ticks: JSON.parse(JSON.stringify(windowTicks)), // deep copy
+                    timestamp: Date.now()
+                };
+                console.log(`[Diagnostic] Snapshot block ${blockStart}: ${windowTicks.length} ticks.`);
+                ws.send(JSON.stringify({ type: 'debug_info', data: `Snapshot captured: ${windowTicks.length} ticks.` }));
+            }
+
+            if (packet.type === 'debug_compare') {
+                if (!global.__debugSnapshot) {
+                    ws.send(JSON.stringify({ type: 'debug_info', data: 'No snapshot. Run debugSnapshot(time) before refresh.' }));
+                    return;
+                }
+                const snap = global.__debugSnapshot;
+                console.log(`[Diagnostic] Comparing block ${snap.blockStart} with history...`);
+
+                // Fetch window from history (blockStart-15 to blockStart+315)
+                // fetchHistoryPage returns up to 5000, we only need ~330
+                deriv._fetchHistoryPage(snap.blockStart + 315, 600).then(hist => {
+                    const official = hist.filter(t => t.epoch >= snap.blockStart - 15 && t.epoch <= snap.blockStart + 315)
+                        .sort((a, b) => a.epoch - b.epoch);
+
+                    const report = {
+                        blockStart: snap.blockStart,
+                        liveCount: snap.ticks.length,
+                        officialCount: official.length,
+                        totalRejectedInStore: store.totalRejectedTicks || 0,
+                        mismatches: []
+                    };
+
+                    const liveMap = new Map(snap.ticks.map(t => [`${t.epoch}_${t.quote}`, t]));
+                    const officialMap = new Map(official.map(t => [`${t.epoch}_${t.quote}`, t]));
+
+                    official.forEach(t => {
+                        if (!liveMap.has(`${t.epoch}_${t.quote}`)) {
+                            report.mismatches.push({ type: 'MISSING_IN_LIVE', tick: t, b: Math.floor(t.epoch / 300) * 300 });
+                        }
+                    });
+
+                    snap.ticks.forEach(t => {
+                        if (!officialMap.has(`${t.epoch}_${t.quote}`)) {
+                            report.mismatches.push({ type: 'GHOST_IN_LIVE', tick: t, b: Math.floor(t.epoch / 300) * 300 });
+                        }
+                    });
+
+                    ws.send(JSON.stringify({ type: 'debug_report', data: report }));
+                }).catch(err => {
+                    ws.send(JSON.stringify({ type: 'debug_info', data: `Comparison error: ${err.message}` }));
+                });
+            }
+
+            if (packet.type === 'debug_counters') {
+                ws.send(JSON.stringify({
+                    type: 'debug_counters', data: {
+                        total: store.totalRejectedTicks || 0,
+                        equal: store.equalEpochRejectedTicks || 0,
+                        older: store.olderThanLastRejectedTicks || 0,
+                        recent: store.recentRejectedTicks || 0
+                    }
+                }));
+            }
+            // --- DIAGNOSTIC END ---
+
         } catch (e) {
             console.error("[WS] Error parsing message:", e);
         }
@@ -117,8 +275,10 @@ deriv.on('tick', (t) => {
 
     // Process closed candles
     const closed = processTick(t.quote, t.epoch, activeCandles);
-    for (const [tf, c] of Object.entries(closed)) {
-        broadcast('candle_closed', { timeframe: tf, data: c });
+    for (const [tf, candles] of Object.entries(closed)) {
+        for (const c of candles) {
+            broadcast('candle_closed', { timeframe: tf, data: c });
+        }
     }
 
     // Update forming candles
@@ -198,21 +358,54 @@ setInterval(() => {
 // --- Bootstrap ---
 console.log(`[System] Initializing for ${symbol}...`);
 
-deriv.fetchHistory(5).then(history => {
-    if (history.length > 0) {
-        console.log(`[System] Pre-filling ${history.length} historical ticks...`);
-        for (const t of history) {
-            store.addTick(t.epoch, t.quote);
+deriv.fetchHistory(5)
+    .then(history => {
+        if (history.length > 0) {
+            console.log(`[System] Pre-filling ${history.length} historical ticks...`);
+            for (const t of history) {
+                store.addTick(t.epoch, t.quote);
+                processTick(t.quote, t.epoch, activeCandles);
+            }
+            volEngine.update(); // Initialize vol engine with historical data
         }
-        volEngine.update(); // Initialize vol engine with historical data
-    }
-    historyReady = true;
-    console.log(`[System] Starting live stream...`);
-    deriv.connect();
-}).catch(err => {
-    console.error(`[System] Init failed:`, err);
-});
+    })
+    .catch(err => {
+        console.error(`[System] History fetch failed:`, err);
+    })
+    .finally(() => {
+        // Ensure we attempt to connect to live stream even if history fetch fails
+        historyReady = true;
+        console.log(`[System] Starting live stream...`);
+        deriv.connect();
+    });
 
 server.listen(config.PORT, '0.0.0.0', () => {
     console.log(`[Server] Stable v1.0.1 running on http://localhost:${config.PORT}`);
 });
+
+// --- Graceful Shutdown ---
+function shutdown(signal) {
+    console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
+
+    // 1. Stop accepting new connections
+    server.close(() => {
+        console.log('[Server] HTTP server closed.');
+    });
+
+    // 2. Close all WebSocket clients
+    wss.clients.forEach(client => {
+        try { client.terminate(); } catch (_) { /* ignore */ }
+    });
+
+    // 3. Disconnect Deriv WebSocket
+    try { deriv.disconnect(); } catch (_) { /* ignore */ }
+
+    // 4. Close SQLite database
+    try { probEngine.close(); } catch (_) { /* ignore */ }
+
+    console.log('[Server] Cleanup complete. Exiting.');
+    process.exit(0);
+}
+
+process.on('SIGINT',  () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

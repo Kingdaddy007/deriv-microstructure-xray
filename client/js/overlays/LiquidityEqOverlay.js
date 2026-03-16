@@ -70,6 +70,50 @@ export default class LiquidityEqOverlay {
         this.requestRender();
     }
 
+    _isLightMode() {
+        return document.body.classList.contains('light-mode');
+    }
+
+    _controlTheme() {
+        return this._isLightMode()
+            ? {
+                border: '1px solid rgba(15,23,42,.12)',
+                background: 'rgba(255,255,255,.92)',
+                color: 'rgba(15,23,42,.78)',
+                activeBlue: 'rgba(37,99,235,.78)',
+                activeAmber: 'rgba(217,119,6,.78)',
+                activeNeutral: 'rgba(71,85,105,.55)',
+                liveBg: 'rgba(37,99,235,0.14)',
+                liveBorder: '1px solid rgba(37,99,235,0.34)',
+                liveColor: '#1d4ed8',
+                viewBg: 'rgba(217,119,6,0.14)',
+                viewBorder: '1px solid rgba(217,119,6,0.32)',
+                viewColor: '#b45309',
+                tagBg: 'rgba(255,255,255,0.92)'
+            }
+            : {
+                border: '1px solid rgba(255,255,255,.15)',
+                background: 'rgba(0,0,0,.35)',
+                color: 'rgba(255,255,255,.85)',
+                activeBlue: 'rgba(56,139,253,.65)',
+                activeAmber: 'rgba(245,158,11,.65)',
+                activeNeutral: 'rgba(255,255,255,.5)',
+                liveBg: 'rgba(56,139,253,0.3)',
+                liveBorder: '1px solid rgba(56,139,253,0.6)',
+                liveColor: '#fff',
+                viewBg: 'rgba(240,185,11,0.3)',
+                viewBorder: '1px solid rgba(240,185,11,0.6)',
+                viewColor: '#fff',
+                tagBg: 'rgba(20,20,20,0.85)'
+            };
+    }
+
+    refreshTheme() {
+        if (typeof this._syncToggleTheme === 'function') this._syncToggleTheme();
+        if (typeof this._updateBadgeUI === 'function') this._updateBadgeUI();
+        this.requestRender();
+    }
+
     destroy() {
         try { this._ro?.disconnect(); } catch { }
         try { this.canvas?.remove(); } catch { }
@@ -87,22 +131,29 @@ export default class LiquidityEqOverlay {
         wrap.style.gap = '6px';
         wrap.style.pointerEvents = 'auto';
 
-        const mkBtn = (label, key, activeColor) => {
+        const getActiveColor = (theme, key) => {
+            if (key === 'enabled5m') return theme.activeBlue;
+            if (key === 'enabled15m') return theme.activeAmber;
+            return theme.activeNeutral;
+        };
+
+        const mkBtn = (label, key) => {
             const b = document.createElement('button');
             b.className = 'tb-btn';
             b.style.font = '12px Inter, system-ui, sans-serif';
             b.style.padding = '4px 8px';
             b.style.borderRadius = '6px';
-            b.style.border = '1px solid rgba(255,255,255,.15)';
-            b.style.background = 'rgba(0,0,0,.35)';
-            b.style.color = 'rgba(255,255,255,.85)';
             b.style.cursor = 'pointer';
             b.textContent = label;
 
             const sync = () => {
-                b.style.borderColor = 'rgba(255,255,255,.15)';
+                const theme = this._controlTheme();
+                b.style.border = theme.border;
+                b.style.background = theme.background;
+                b.style.color = theme.color;
+                b.style.borderColor = theme.border.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(255,255,255,.15)';
                 if (this.uiState.liqEq[key]) {
-                    b.style.borderColor = activeColor;
+                    b.style.borderColor = getActiveColor(theme, key);
                 }
             };
             sync();
@@ -116,9 +167,9 @@ export default class LiquidityEqOverlay {
             return b;
         };
 
-        const btn5 = mkBtn('5m L', 'enabled5m', 'rgba(56,139,253,.65)');
-        const btn15 = mkBtn('15m L', 'enabled15m', 'rgba(245,158,11,.65)');
-        const btnMid = mkBtn('Mid', 'enabledMid', 'rgba(255,255,255,.5)');
+        const btn5 = mkBtn('5m L', 'enabled5m');
+        const btn15 = mkBtn('15m L', 'enabled15m');
+        const btnMid = mkBtn('Mid', 'enabledMid');
 
         // Depth selector button
         const btnDepth = document.createElement('button');
@@ -126,11 +177,14 @@ export default class LiquidityEqOverlay {
         btnDepth.style.font = '12px Inter, system-ui, sans-serif';
         btnDepth.style.padding = '4px 8px';
         btnDepth.style.borderRadius = '6px';
-        btnDepth.style.border = '1px solid rgba(255,255,255,.15)';
-        btnDepth.style.background = 'rgba(0,0,0,.35)';
-        btnDepth.style.color = 'rgba(255,255,255,.85)';
         btnDepth.style.cursor = 'pointer';
-        const syncDepth = () => { btnDepth.textContent = `[${this.blockDepth}]`; };
+        const syncDepth = () => {
+            const nextTheme = this._controlTheme();
+            btnDepth.textContent = `[${this.blockDepth}]`;
+            btnDepth.style.border = nextTheme.border;
+            btnDepth.style.background = nextTheme.background;
+            btnDepth.style.color = nextTheme.color;
+        };
         syncDepth();
         btnDepth.onclick = (e) => {
             e.stopPropagation();
@@ -151,17 +205,41 @@ export default class LiquidityEqOverlay {
         badge.style.alignItems = 'center';
 
         this._updateBadgeUI = () => {
+            const nextTheme = this._controlTheme();
             if (this._effectiveMode === 'LIVE') {
                 badge.textContent = 'LIVE';
-                badge.style.background = 'rgba(56,139,253,0.3)';
-                badge.style.border = '1px solid rgba(56,139,253,0.6)';
+                badge.style.background = nextTheme.liveBg;
+                badge.style.border = nextTheme.liveBorder;
+                badge.style.color = nextTheme.liveColor;
             } else {
                 badge.textContent = 'VIEW';
-                badge.style.background = 'rgba(240,185,11,0.3)';
-                badge.style.border = '1px solid rgba(240,185,11,0.6)';
+                badge.style.background = nextTheme.viewBg;
+                badge.style.border = nextTheme.viewBorder;
+                badge.style.color = nextTheme.viewColor;
             }
         };
         this._updateBadgeUI();
+
+        this._syncToggleTheme = () => {
+            const nextTheme = this._controlTheme();
+            btn5.style.border = nextTheme.border;
+            btn5.style.background = nextTheme.background;
+            btn5.style.color = nextTheme.color;
+            btn5.style.borderColor = this.uiState.liqEq.enabled5m ? nextTheme.activeBlue : (nextTheme.border.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(255,255,255,.15)');
+
+            btn15.style.border = nextTheme.border;
+            btn15.style.background = nextTheme.background;
+            btn15.style.color = nextTheme.color;
+            btn15.style.borderColor = this.uiState.liqEq.enabled15m ? nextTheme.activeAmber : (nextTheme.border.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(255,255,255,.15)');
+
+            btnMid.style.border = nextTheme.border;
+            btnMid.style.background = nextTheme.background;
+            btnMid.style.color = nextTheme.color;
+            btnMid.style.borderColor = this.uiState.liqEq.enabledMid ? nextTheme.activeNeutral : (nextTheme.border.match(/rgba?\([^)]*\)/)?.[0] || 'rgba(255,255,255,.15)');
+
+            syncDepth();
+            this._updateBadgeUI();
+        };
 
         wrap.appendChild(btn5);
         wrap.appendChild(btn15);
@@ -182,19 +260,23 @@ export default class LiquidityEqOverlay {
         const thresholdSec = 60; // Increased threshold for mode switching (1 min)
 
         let viewRightT = actualLastT;
+        let focusT = actualLastT;
         let mode = 'LIVE';
 
         try {
             const lr = this.chart.timeScale().getVisibleLogicalRange();
             if (lr) {
                 const toIdx = Math.min(data.length - 1, Math.max(0, Math.floor(lr.to)));
+                const focusIdx = Math.min(data.length - 1, Math.max(0, Math.floor(lr.from + ((lr.to - lr.from) * 0.6))));
                 let vT = getPointTimeSec(data[toIdx]);
+                let fT = getPointTimeSec(data[focusIdx]);
 
                 if (vT != null) {
                     vT = Math.min(vT, actualLastT);
                     if ((actualLastT - vT) > thresholdSec) {
                         viewRightT = vT;
                         mode = 'VIEW';
+                        if (fT != null) focusT = Math.min(fT, actualLastT);
                     }
                 }
             }
@@ -207,9 +289,8 @@ export default class LiquidityEqOverlay {
         this._effectiveMode = mode;
         if (this._updateBadgeUI) this._updateBadgeUI();
 
-        const firstT = getPointTimeSec(data[0]) || 0;
-        const focusT5m = Math.max(firstT, viewRightT - 2 * 300);
-        const focusT15m = Math.max(firstT, viewRightT - 1 * 900);
+        const focusT5m = mode === 'VIEW' ? focusT : viewRightT;
+        const focusT15m = mode === 'VIEW' ? focusT : viewRightT;
 
         return { viewRightT, focusT5m, focusT15m, mode };
     }
@@ -421,7 +502,7 @@ export default class LiquidityEqOverlay {
             const px = Math.max(0, rightEdgeX - textW - padding * 2 - 2);
             const py = avgY - ph / 2;
 
-            this.ctx.fillStyle = 'rgba(20, 20, 20, 0.85)';
+            this.ctx.fillStyle = this._controlTheme().tagBg;
             this.ctx.beginPath();
             if (this.ctx.roundRect) {
                 this.ctx.roundRect(px, py, textW + padding * 2, ph, 4);
