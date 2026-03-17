@@ -16,13 +16,15 @@ const EventEmitter = require('events');
 const config = require('./config');
 
 class DerivClient extends EventEmitter {
-    constructor(symbol) {
+    constructor(symbol, token, options = {}) {
         super();
         this.symbol = symbol;
+        this.token = token || config.DERIV_DEMO_TOKEN;
         this.ws = null;
         this.appId = config.DERIV_APP_ID;
         this.urls = config.DERIV_WS_URLS; // Array of fallback URLs
         this.urlIndex = 0;
+        this.subscribeTicks = options.subscribeTicks !== false; // default: true
 
         this.isConnected = false;
         this.isReconnecting = false;
@@ -32,6 +34,10 @@ class DerivClient extends EventEmitter {
         // Pending request callbacks keyed by req_id
         this._pendingRequests = {};
         this._reqId = 1;
+
+        // Stale-stream detection (tick freeze watchdog)
+        this._lastTickReceived = 0;
+        this._staleCheckInterval = null;
     }
 
     _getCurrentUrl() {
@@ -135,17 +141,19 @@ class DerivClient extends EventEmitter {
             this.emit('connect');
 
             // If we have an API token, authorize first
-            const token = config.DERIV_API_TOKEN;
+            const token = this.token;
             if (token) {
                 console.log(`[DerivClient] Authorizing with API token...`);
                 this.ws.send(JSON.stringify({ authorize: token }));
             }
 
-            // Subscribe to live ticks
-            this.ws.send(JSON.stringify({
-                ticks: this.symbol,
-                subscribe: 1
-            }));
+            // Subscribe to live ticks (only for data clients, not trade-only clients)
+            if (this.subscribeTicks) {
+                this.ws.send(JSON.stringify({
+                    ticks: this.symbol,
+                    subscribe: 1
+                }));
+            }
 
             // Keep alive ping every 25s (under Deriv's 30s timeout)
             this.pingInterval = setInterval(() => {
@@ -153,6 +161,19 @@ class DerivClient extends EventEmitter {
                     this.ws.send(JSON.stringify({ ping: 1 }));
                 }
             }, 25000);
+
+            // Stale-stream watchdog: if no tick arrives for 8s, force reconnect
+            // Only active on clients that subscribe to ticks
+            if (this.subscribeTicks) {
+                this._lastTickReceived = Date.now();
+                clearInterval(this._staleCheckInterval);
+                this._staleCheckInterval = setInterval(() => {
+                    if (this.isConnected && Date.now() - this._lastTickReceived > 8000) {
+                        console.warn('[DerivClient] Data stream stale (>8s without tick). Forcing reconnect...');
+                        this.ws.terminate(); // triggers handleDisconnect → scheduleReconnect
+                    }
+                }, 5000);
+            }
         });
 
         this.ws.on('message', (data) => {
@@ -188,10 +209,13 @@ class DerivClient extends EventEmitter {
                     console.log(`[DerivClient]   Login ID: ${loginId}`);
                     console.log(`[DerivClient]   Email: ${acctInfo.email || 'N/A'}`);
                     this.emit('authorize', { isVirtual, loginId, email: acctInfo.email, currency: acctInfo.currency, balance: acctInfo.balance });
+                    // Auto-subscribe to live balance stream after authorization
+                    this.subscribeBalance();
                 }
 
                 if (msg.msg_type === 'tick' && msg.tick) {
                     const t = msg.tick;
+                    this._lastTickReceived = Date.now();
                     this.emit('tick', {
                         symbol: t.symbol,
                         epoch: t.epoch,
@@ -201,6 +225,17 @@ class DerivClient extends EventEmitter {
 
                 if (msg.msg_type === 'proposal_open_contract' && msg.proposal_open_contract) {
                     this.emit('proposal_open_contract', msg.proposal_open_contract);
+                }
+
+                // Live balance updates from Deriv's balance subscription
+                if (msg.msg_type === 'balance' && msg.balance) {
+                    const bal = msg.balance;
+                    this.emit('balance', {
+                        balance: bal.balance,
+                        currency: bal.currency,
+                        loginid: bal.loginid,
+                        id: bal.id
+                    });
                 }
             } catch (e) {
                 console.error(`[DerivClient] Failed to parse message:`, e);
@@ -223,6 +258,15 @@ class DerivClient extends EventEmitter {
     handleDisconnect() {
         this.isConnected = false;
         clearInterval(this.pingInterval);
+        clearInterval(this._staleCheckInterval);
+
+        // Reject all pending requests — they will never get responses on the dead socket
+        for (const reqId of Object.keys(this._pendingRequests)) {
+            const { reject } = this._pendingRequests[reqId];
+            try { reject(new Error('WebSocket disconnected')); } catch (_) { /* ignore */ }
+        }
+        this._pendingRequests = {};
+
         this.emit('disconnect');
 
         if (!this.isReconnecting) {
@@ -266,6 +310,16 @@ class DerivClient extends EventEmitter {
             };
             this.ws.send(JSON.stringify({ ...payload, req_id: reqId }));
         });
+    }
+
+    /**
+     * Subscribe to live balance updates from Deriv.
+     * Emits 'balance' events whenever the account balance changes (trades, deposits, etc.)
+     */
+    subscribeBalance() {
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+        this.ws.send(JSON.stringify({ balance: 1, subscribe: 1 }));
+        console.log('[DerivClient] Subscribed to live balance stream');
     }
 
     disconnect() {

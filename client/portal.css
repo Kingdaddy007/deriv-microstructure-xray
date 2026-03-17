@@ -1,0 +1,448 @@
+/* ═══════════════════════════════════════════════════════
+   Cipher Portal — The Grid Awakening
+   ═══════════════════════════════════════════════════════ */
+
+:root {
+    --bg-dark: #030509;
+    --acc-blue: #58a6ff;
+    --acc-gold: #f0a500;
+    --acc-cyan: #00f0ff;
+    --text-main: #c9d1d9;
+    --text-muted: #8b949e;
+    --panel-bg: rgba(13, 17, 23, 0.7);
+    --panel-border: rgba(88, 166, 255, 0.12);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body, html {
+    width: 100%; height: 100%; margin: 0;
+    overflow: hidden;
+    background: var(--bg-dark);
+    font-family: 'Inter', sans-serif;
+    color: var(--text-main);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+}
+
+.mono { font-family: 'JetBrains Mono', monospace; }
+
+/* ── WebGL Canvas ── */
+#canvas-container {
+    position: fixed; inset: 0;
+    z-index: 1;
+}
+
+/* ── Scanline Sweep ── */
+#scanline-overlay {
+    position: fixed; inset: 0;
+    z-index: 2;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 240, 255, 0.015) 2px,
+        rgba(0, 240, 255, 0.015) 4px
+    );
+}
+#scanline-overlay::after {
+    content: '';
+    position: absolute;
+    top: -100%; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(180deg, transparent 0%, rgba(0,240,255,0.04) 50%, transparent 100%);
+    animation: scanSweep 6s linear infinite;
+}
+@keyframes scanSweep {
+    0%   { top: -100%; }
+    100% { top: 200%; }
+}
+
+/* ── UI Layer ── */
+#ui-layer {
+    position: fixed; inset: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    pointer-events: none;
+}
+
+/* ── Boot Container (Logo + Text during Phase 1) ── */
+#boot-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+    position: absolute;
+}
+#boot-container.visible { opacity: 1; }
+#boot-container.fade-out {
+    opacity: 0;
+    transition: opacity 0.6s ease;
+}
+
+.cipher-logo {
+    color: var(--acc-blue);
+    filter: drop-shadow(0 0 12px rgba(88,166,255,0.5));
+}
+
+/* SVG trace: all strokes start hidden */
+.cipher-logo polygon,
+.cipher-logo polyline,
+.cipher-logo line {
+    stroke-dasharray: 200;
+    stroke-dashoffset: 200;
+    transition: none;
+}
+.cipher-logo.tracing polygon,
+.cipher-logo.tracing polyline,
+.cipher-logo.tracing line {
+    animation: svgTrace 1.5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+@keyframes svgTrace {
+    to { stroke-dashoffset: 0; }
+}
+
+.boot-text {
+    font-size: 1.6rem;
+    font-weight: 700;
+    letter-spacing: 0.25em;
+    color: var(--text-main);
+    text-shadow: 0 0 15px rgba(88,166,255,0.4);
+    min-height: 2rem;
+    /* Shimmer on the boot CIPHER text */
+    background: linear-gradient(90deg, var(--text-main) 0%, #fff 50%, var(--text-main) 100%);
+    background-size: 200% auto;
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: shimmer 3s infinite linear;
+}
+
+/* ── Glass Panel (Ready State) ── */
+.glass-panel {
+    background: var(--panel-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--panel-border);
+    border-radius: 16px;
+    padding: 2.5rem 2.5rem 1.5rem;
+    width: 460px;
+    max-width: 92vw;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    box-shadow:
+        0 40px 80px rgba(0,0,0,0.5),
+        0 0 1px rgba(88,166,255,0.3),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+    position: relative;
+    overflow: hidden;
+    /* Start invisible — JS controls visibility */
+    opacity: 0;
+    transform: translateY(30px) scale(0.92);
+    transition: opacity 1s cubic-bezier(0.16,1,0.3,1),
+                transform 1s cubic-bezier(0.16,1,0.3,1);
+    pointer-events: none;
+}
+.glass-panel.visible {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    pointer-events: auto;
+}
+
+/* Panel data rain FX */
+.panel-rain {
+    position: absolute; inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+    opacity: 0.3;
+}
+.panel-rain::before {
+    content: '';
+    position: absolute;
+    top: -100%; left: 30%; width: 1px; height: 100%;
+    background: linear-gradient(180deg, transparent, rgba(88,166,255,0.15), transparent);
+    animation: rainDrop 4s linear infinite;
+}
+.panel-rain::after {
+    content: '';
+    position: absolute;
+    top: -100%; left: 65%; width: 1px; height: 100%;
+    background: linear-gradient(180deg, transparent, rgba(88,166,255,0.1), transparent);
+    animation: rainDrop 5s 1.5s linear infinite;
+}
+@keyframes rainDrop {
+    0%   { top: -100%; }
+    100% { top: 200%; }
+}
+
+/* ── Panel Header ── */
+.panel-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0.75rem;
+    z-index: 1;
+}
+.cipher-logo-sm {
+    color: var(--acc-blue);
+    filter: drop-shadow(0 0 8px rgba(88,166,255,0.4));
+}
+
+.cipher-text-shimmer {
+    font-size: 1.5rem;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    margin: 0;
+    background: linear-gradient(90deg, var(--text-main) 0%, #fff 50%, var(--text-main) 100%);
+    background-size: 200% auto;
+    color: transparent;
+    -webkit-background-clip: text;
+    background-clip: text;
+    animation: shimmer 4s infinite linear;
+}
+@keyframes shimmer { to { background-position: 200% center; } }
+
+/* ── Stat Pills ── */
+.stat-pills {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 1.5rem;
+    z-index: 1;
+}
+.pill {
+    font-size: 0.65rem;
+    letter-spacing: 0.08em;
+    color: var(--acc-cyan);
+    background: rgba(0,240,255,0.06);
+    border: 1px solid rgba(0,240,255,0.15);
+    padding: 3px 10px;
+    border-radius: 20px;
+}
+.pill-sep {
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+/* ── Account Cards ── */
+.account-selector {
+    display: flex;
+    gap: 12px;
+    width: 100%;
+    margin-bottom: 1.5rem;
+    z-index: 1;
+}
+.acct-card {
+    flex: 1;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 10px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    transition: all 0.25s ease;
+    color: var(--text-muted);
+    text-align: left;
+}
+.acct-card:hover {
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255,255,255,0.12);
+}
+.acct-title {
+    font-size: 1rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+}
+.acct-desc {
+    font-size: 0.7rem;
+    line-height: 1.5;
+    opacity: 0.7;
+}
+
+/* DEMO active */
+.acct-card[data-type="demo"].active {
+    border-color: var(--acc-blue);
+    background: rgba(88,166,255,0.08);
+    box-shadow: 0 0 20px rgba(88,166,255,0.1);
+    color: #fff;
+}
+.acct-card[data-type="demo"].active .acct-title { color: var(--acc-blue); }
+
+/* REAL active — GOLD/AMBER per brief */
+.acct-card[data-type="real"].active {
+    border-color: var(--acc-gold);
+    background: rgba(240,165,0,0.08);
+    box-shadow: 0 0 20px rgba(240,165,0,0.1);
+    color: #fff;
+}
+.acct-card[data-type="real"].active .acct-title { color: var(--acc-gold); }
+
+/* ── Auth Status ── */
+.auth-status {
+    width: 100%;
+    margin-bottom: 1.5rem;
+    display: flex;
+    justify-content: center;
+    z-index: 1;
+}
+.status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 16px;
+    background: rgba(0,0,0,0.35);
+    border-radius: 30px;
+    border: 1px solid rgba(255,255,255,0.04);
+}
+.dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--acc-blue);
+}
+.dot.pulsing {
+    box-shadow: 0 0 6px var(--acc-blue);
+    animation: dotPulse 2s ease-in-out infinite;
+}
+@keyframes dotPulse {
+    0%, 100% { box-shadow: 0 0 4px var(--acc-blue); }
+    50%      { box-shadow: 0 0 12px var(--acc-blue), 0 0 20px rgba(88,166,255,0.3); }
+}
+.status-indicator span {
+    font-size: 0.7rem;
+    color: var(--acc-blue);
+    letter-spacing: 0.12em;
+}
+
+/* ── Enter Button ── */
+.enter-btn {
+    width: 100%;
+    padding: 0.9rem;
+    background: transparent;
+    border: 1px solid var(--acc-gold);
+    border-radius: 8px;
+    color: var(--acc-gold);
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 0.9rem;
+    letter-spacing: 0.12em;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    transition: all 0.3s ease;
+    position: relative;
+    overflow: hidden;
+    z-index: 1;
+    pointer-events: auto;
+}
+.enter-btn::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, rgba(240,165,0,0.15), transparent);
+    transform: translateX(-100%);
+    transition: transform 0.6s ease;
+}
+.enter-btn:hover {
+    background: rgba(240,165,0,0.08);
+    box-shadow: 0 0 20px rgba(240,165,0,0.15);
+}
+.enter-btn:hover::before { transform: translateX(100%); }
+.enter-btn svg { transition: transform 0.3s ease; }
+.enter-btn:hover svg { transform: translateX(4px); }
+
+/* ── Panel Footer ── */
+.panel-footer {
+    margin-top: 1.25rem;
+    font-size: 0.55rem;
+    letter-spacing: 0.15em;
+    color: var(--text-muted);
+    opacity: 0.5;
+    z-index: 1;
+    text-align: center;
+}
+
+/* ── Flash Overlay ── */
+#flash-overlay {
+    position: fixed; inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 100;
+    transition: opacity 0.3s ease-in;
+}
+
+/* ── Utility ── */
+.hidden { display: none !important; }
+
+/* ═══════════════════════════════════════════════════════
+   FLAME RING — Animated fire glow around logo during boot
+   ═══════════════════════════════════════════════════════ */
+#boot-logo {
+    position: relative;
+    transition: filter 0.5s ease;
+}
+
+#boot-logo.flame-active::before,
+#boot-logo.flame-active::after {
+    content: '';
+    position: absolute;
+    inset: -18px;
+    border-radius: 50%;
+    pointer-events: none;
+}
+
+/* Outer flame ring — pulsing orange/amber glow */
+#boot-logo.flame-active::before {
+    background: conic-gradient(
+        from 0deg,
+        transparent 0deg,
+        rgba(240, 165, 0, 0.6) 40deg,
+        rgba(255, 80, 0, 0.3) 90deg,
+        transparent 140deg,
+        rgba(0, 200, 255, 0.4) 200deg,
+        rgba(240, 165, 0, 0.5) 280deg,
+        transparent 340deg
+    );
+    animation: flame-spin 2s linear infinite;
+    filter: blur(8px);
+    opacity: 0.8;
+}
+
+/* Inner glow — cyan heartbeat sync */
+#boot-logo.flame-active::after {
+    background: radial-gradient(
+        circle,
+        rgba(0, 200, 255, 0.15) 0%,
+        rgba(0, 200, 255, 0.05) 50%,
+        transparent 70%
+    );
+    animation: flame-pulse 1s ease-in-out infinite alternate;
+}
+
+#boot-logo.flame-active {
+    filter: drop-shadow(0 0 12px rgba(0, 200, 255, 0.5))
+            drop-shadow(0 0 30px rgba(240, 165, 0, 0.3));
+}
+
+@keyframes flame-spin {
+    0%   { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes flame-pulse {
+    0%   { transform: scale(0.95); opacity: 0.5; }
+    100% { transform: scale(1.08); opacity: 1; }
+}
+

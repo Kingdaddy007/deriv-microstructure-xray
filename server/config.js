@@ -1,12 +1,13 @@
 /**
- * Config — Central configuration for the Touch Edge System
+ * Config — Central configuration for the Cipher Trading Terminal
  */
 const path = require('path');
 
 module.exports = {
     // Deriv API Configuration
     DERIV_APP_ID: process.env.DERIV_APP_ID || process.env.APP_ID || 1089,
-    DERIV_API_TOKEN: process.env.DERIV_API_TOKEN || process.env.DERIV_TOKEN || '',
+    DERIV_DEMO_TOKEN: process.env.DERIV_DEMO_TOKEN || process.env.DERIV_API_TOKEN || process.env.DERIV_TOKEN || '',
+    DERIV_REAL_TOKEN: process.env.DERIV_REAL_TOKEN || '',
 
     // Fallback URLs to cycle through if connection fails (bypasses ISP/TLS blocks)
     DERIV_WS_URLS: [

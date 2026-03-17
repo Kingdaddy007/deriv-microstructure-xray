@@ -25,16 +25,7 @@ export default class TradingPanel {
         this._bindEvents();
         this._historyTimer = setInterval(() => this._refreshTradeCountdowns(), 250);
 
-        // P4: If account_info never arrives, update badge after timeout
-        this._acctTimeout = setTimeout(() => {
-            if (!this.accountInfo) {
-                const badge = this.containerEl.querySelector('#acctBadge');
-                if (badge && badge.textContent.includes('CHECKING')) {
-                    badge.textContent = 'NO TOKEN';
-                    badge.className = 'acct-badge acct-unknown';
-                }
-            }
-        }, 5000);
+
     }
 
     // ── Build the DOM ──
@@ -43,7 +34,6 @@ export default class TradingPanel {
             <div class="trading-panel">
                 <div class="trading-header">
                     <label>Trading</label>
-                    <span id="acctBadge" class="acct-badge acct-unknown">CHECKING...</span>
                 </div>
 
                 <div class="trading-controls">
@@ -155,20 +145,8 @@ export default class TradingPanel {
         }
     }
 
-    // ── Account info badge ──
     _setAccountInfo(info) {
         this.accountInfo = info;
-        if (this._acctTimeout) { clearTimeout(this._acctTimeout); this._acctTimeout = null; }
-        const badge = this.containerEl.querySelector('#acctBadge');
-        if (badge) {
-            if (info.isVirtual) {
-                badge.textContent = 'DEMO (' + info.currency + ')';
-                badge.className = 'acct-badge acct-demo';
-            } else {
-                badge.textContent = 'REAL (' + info.currency + ')';
-                badge.className = 'acct-badge acct-real';
-            }
-        }
     }
 
     // ── Update contract type display based on direction ──
@@ -215,6 +193,7 @@ export default class TradingPanel {
 
         this.ws.send(JSON.stringify({
             type: 'get_proposal',
+            mode: window.__accountMode || 'demo',
             amount: stake,
             contract_type: 'ONETOUCH',
             barrier: barrierStr,
@@ -248,6 +227,7 @@ export default class TradingPanel {
 
             this.ws.send(JSON.stringify({
                 type: 'execute_trade',
+                mode: window.__accountMode || 'demo',
                 proposalId: data.proposalId,
                 maxPrice: data.askPrice
             }));

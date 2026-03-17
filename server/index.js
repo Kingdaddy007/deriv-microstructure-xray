@@ -33,7 +33,8 @@ app.use('/lib', express.static(path.join(__dirname, '..', 'node_modules', 'light
 
 // --- Shared State ---
 const symbol = config.SYMBOLS.V100_1S;
-const deriv = new DerivClient(symbol);
+const deriv = new DerivClient(symbol, config.DERIV_DEMO_TOKEN);
+const derivReal = new DerivClient(symbol, config.DERIV_REAL_TOKEN, { subscribeTicks: false });
 const store = new TickStore(config.MAX_TICK_HISTORY);
 const activeCandles = {};
 
@@ -41,13 +42,33 @@ const activeCandles = {};
 const volEngine = new VolatilityEngine(store);
 const probEngine = new ProbabilityEngine(symbol, volEngine);
 const edgeCalc = new EdgeCalculator(volEngine);
-const tradingEngine = new TradingEngine(deriv);
+const tradingDemo = new TradingEngine(deriv);
+const tradingReal = new TradingEngine(derivReal);
+
+// Helper: pick the correct trading engine by mode
+function getTradingEngine(mode) {
+    return mode === 'real' ? tradingReal : tradingDemo;
+}
 
 // Track account info for broadcasting to new clients
-let accountInfo = null;
+let accountInfo = { demo: null, real: null };
 deriv.on('authorize', (info) => {
-    accountInfo = info;
-    broadcast('account_info', info);
+    accountInfo.demo = info;
+    broadcast('account_info', { ...info, mode: 'demo' });
+});
+derivReal.on('authorize', (info) => {
+    accountInfo.real = info;
+    broadcast('account_info', { ...info, mode: 'real' });
+});
+
+// Live balance updates — broadcast to all clients and keep cached info in sync
+deriv.on('balance', (balData) => {
+    if (accountInfo.demo) accountInfo.demo.balance = balData.balance;
+    broadcast('balance', { balance: balData.balance, currency: balData.currency || accountInfo.demo?.currency, mode: 'demo' });
+});
+derivReal.on('balance', (balData) => {
+    if (accountInfo.real) accountInfo.real.balance = balData.balance;
+    broadcast('balance', { balance: balData.balance, currency: balData.currency || accountInfo.real?.currency, mode: 'real' });
 });
 
 let lastTickTime = null;
@@ -86,25 +107,34 @@ function sendToClient(clientId, type, data) {
     return delivered;
 }
 
-tradingEngine.on('trade_outcome', (outcome) => {
+tradingDemo.on('trade_outcome', (outcome) => {
+    outcome.mode = 'demo';
     const delivered = outcome.ownerId !== null && outcome.ownerId !== undefined
         ? sendToClient(outcome.ownerId, 'trade_outcome', outcome)
         : false;
-
-    if (!delivered) {
-        broadcast('trade_outcome', outcome);
-    }
+    if (!delivered) broadcast('trade_outcome', outcome);
+});
+tradingReal.on('trade_outcome', (outcome) => {
+    outcome.mode = 'real';
+    const delivered = outcome.ownerId !== null && outcome.ownerId !== undefined
+        ? sendToClient(outcome.ownerId, 'trade_outcome', outcome)
+        : false;
+    if (!delivered) broadcast('trade_outcome', outcome);
 });
 
-// Forward live contract updates (open contract status changes) to client for real-time color coding
-tradingEngine.on('contract_update', (update) => {
+tradingDemo.on('contract_update', (update) => {
+    update.mode = 'demo';
     const delivered = update.ownerId !== null && update.ownerId !== undefined
         ? sendToClient(update.ownerId, 'contract_update', update)
         : false;
-
-    if (!delivered) {
-        broadcast('contract_update', update);
-    }
+    if (!delivered) broadcast('contract_update', update);
+});
+tradingReal.on('contract_update', (update) => {
+    update.mode = 'real';
+    const delivered = update.ownerId !== null && update.ownerId !== undefined
+        ? sendToClient(update.ownerId, 'contract_update', update)
+        : false;
+    if (!delivered) broadcast('contract_update', update);
 });
 
 // --- WebSocket Connection ---
@@ -115,8 +145,11 @@ wss.on('connection', (ws) => {
     ws.send(JSON.stringify({ type: 'symbol', data: symbol }));
     ws.send(JSON.stringify({ type: 'config', data: uiConfig }));
     // Send account info if already authorized
-    if (accountInfo) {
-        ws.send(JSON.stringify({ type: 'account_info', data: accountInfo }));
+    if (accountInfo.demo) {
+        ws.send(JSON.stringify({ type: 'account_info', data: { ...accountInfo.demo, mode: 'demo' } }));
+    }
+    if (accountInfo.real) {
+        ws.send(JSON.stringify({ type: 'account_info', data: { ...accountInfo.real, mode: 'real' } }));
     }
 
     if (store.getSize() > 0) {
@@ -148,8 +181,9 @@ wss.on('connection', (ws) => {
                 if (packet.horizon) reachGridConfig.lookbackSec = packet.horizon;
             }
 
-            // ── TRADING HANDLERS (isolated via TradingEngine) ──
+            // ── TRADING HANDLERS (routed by mode: demo or real) ──
             if (packet.type === 'get_proposal') {
+                const engine = getTradingEngine(packet.mode);
                 // Server-side sanity validation — no upper cap, just ensure valid input
                 const amount = parseFloat(packet.amount);
                 if (!Number.isFinite(amount) || amount < 0.35) {
@@ -162,7 +196,7 @@ wss.on('connection', (ws) => {
                     return;
                 }
 
-                tradingEngine.getProposal({
+                engine.getProposal({
                     amount,
                     contract_type: packet.contract_type,
                     barrier: packet.barrier,
@@ -178,12 +212,22 @@ wss.on('connection', (ws) => {
             }
 
             if (packet.type === 'execute_trade') {
-                tradingEngine.executeBuy(packet.proposalId, packet.maxPrice, ws._clientId)
+                const engine = getTradingEngine(packet.mode);
+                engine.executeBuy(packet.proposalId, packet.maxPrice, ws._clientId)
                     .then(result => {
                         ws.send(JSON.stringify({ type: 'trade_result', data: result }));
                     }).catch(err => {
                         ws.send(JSON.stringify({ type: 'trade_error', data: { message: err.message || err.code || 'Trade execution failed' } }));
                     });
+            }
+
+            // ── BALANCE SUBSCRIBE ──
+            if (packet.type === 'subscribe_balance') {
+                const mode = packet.mode || 'demo';
+                const info = mode === 'real' ? accountInfo.real : accountInfo.demo;
+                if (info) {
+                    ws.send(JSON.stringify({ type: 'balance', data: { balance: info.balance, currency: info.currency, mode } }));
+                }
             }
 
             // --- DIAGNOSTIC START ---
@@ -375,8 +419,12 @@ deriv.fetchHistory(5)
     .finally(() => {
         // Ensure we attempt to connect to live stream even if history fetch fails
         historyReady = true;
-        console.log(`[System] Starting live stream...`);
+        console.log(`[System] Starting live streams...`);
         deriv.connect();
+        // Connect real account client for trading (does not subscribe to ticks, only auth)
+        if (config.DERIV_REAL_TOKEN) {
+            derivReal.connect();
+        }
     });
 
 server.listen(config.PORT, '0.0.0.0', () => {
@@ -397,8 +445,9 @@ function shutdown(signal) {
         try { client.terminate(); } catch (_) { /* ignore */ }
     });
 
-    // 3. Disconnect Deriv WebSocket
+    // 3. Disconnect Deriv WebSockets
     try { deriv.disconnect(); } catch (_) { /* ignore */ }
+    try { derivReal.disconnect(); } catch (_) { /* ignore */ }
 
     // 4. Close SQLite database
     try { probEngine.close(); } catch (_) { /* ignore */ }

@@ -47,6 +47,31 @@ if (localStorage.getItem('devMode') === '1') {
     console.info('[Dev Mode] Debug helpers active: debugSnapshot, debugCompare, debugCounters');
 }
 
+// ── Balance Eye Toggle ──
+(function initBalanceToggle() {
+    const btn = document.getElementById('balanceToggle');
+    const val = document.getElementById('balanceValue');
+    if (!btn || !val) return;
+    let hidden = true; // start hidden
+    btn.addEventListener('click', () => {
+        hidden = !hidden;
+        if (hidden) {
+            val.textContent = '$***.** ';
+            val.dataset.hidden = '1';
+            btn.classList.add('hidden-balance');
+        } else {
+            delete val.dataset.hidden;
+            btn.classList.remove('hidden-balance');
+            // Show stored balance if available
+            if (window.__currentBalance) {
+                const amt = parseFloat(window.__currentBalance.balance).toFixed(2);
+                const cur = window.__currentBalance.currency || 'USD';
+                val.textContent = `${cur === 'USD' ? '$' : cur + ' '}${amt} `;
+            }
+        }
+    });
+})();
+
 function normTimeSec(t) {
     if (t == null) return null;
     const x = Number(t);
@@ -822,6 +847,17 @@ function connectWebSocket() {
         } else {
             tradingPanel.ws = ws; // Update WS reference on reconnect
         }
+
+        // ── Mode Badge & Balance Subscription ──
+        const urlMode = new URLSearchParams(window.location.search).get('mode') || 'demo';
+        window.__accountMode = urlMode;
+        const modeBadge = document.getElementById('modeBadge');
+        if (modeBadge) {
+            modeBadge.textContent = urlMode.toUpperCase();
+            modeBadge.className = 'badge mono ' + (urlMode === 'real' ? 'badge-real' : 'badge-demo');
+        }
+        // Subscribe to balance for the current mode
+        ws.send(JSON.stringify({ type: 'subscribe_balance', mode: urlMode }));
     };
     ws.onclose = () => {
         const badge = document.getElementById('symbolBadge');
@@ -894,6 +930,16 @@ function connectWebSocket() {
                 case 'trade_error':
                     if (tradingPanel) tradingPanel.handleMessage(msg);
                     break;
+                case 'balance': {
+                    const balEl = document.getElementById('balanceValue');
+                    if (balEl && !balEl.dataset.hidden) {
+                        const amt = parseFloat(msg.data.balance).toFixed(2);
+                        const cur = msg.data.currency || 'USD';
+                        balEl.textContent = `${cur === 'USD' ? '$' : cur + ' '}${amt} `;
+                    }
+                    window.__currentBalance = msg.data;
+                    break;
+                }
                 // Trade outcome — route to both TradingPanel (history) and App (barrier cleanup)
                 case 'trade_outcome':
                     if (tradingPanel) tradingPanel.handleMessage(msg);

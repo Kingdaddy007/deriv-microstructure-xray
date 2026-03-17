@@ -307,7 +307,16 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border, #1e2a3a) transparent;
 }
-.trade-history-list::-webkit-scrollbar { width: 4px; }
+
+/* Fallback for Chrome, Safari, and newer Edge */
+.trade-history-list::-webkit-scrollbar {
+    width: 4px;
+}
+
+.trade-history-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
 .trade-history-list::-webkit-scrollbar-thumb {
     background: var(--border, #1e2a3a);
     border-radius: 2px;
@@ -618,4 +627,86 @@ body.light-mode .trade-history-panel .panel-header {
     .trade-history-list {
         max-height: 180px;
     }
+}
+
+/* ═══════════════════════════════════════════
+   TOP BAR — Mode Badge & Balance Pill
+   ═══════════════════════════════════════════ */
+
+/* Mode badge in top bar */
+.badge-demo {
+    background: rgba(34, 197, 94, 0.15);
+    color: #22c55e;
+    border: 1px solid rgba(34, 197, 94, 0.3);
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.1em;
+}
+.badge-real {
+    background: rgba(240, 165, 0, 0.15);
+    color: #f0a500;
+    border: 1px solid rgba(240, 165, 0, 0.3);
+    font-size: 0.6rem;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 999px;
+    letter-spacing: 0.1em;
+    animation: badge-real-glow 2s ease-in-out infinite;
+}
+@keyframes badge-real-glow {
+    0%, 100% { box-shadow: 0 0 6px rgba(240, 165, 0, 0.15); }
+    50%      { box-shadow: 0 0 14px rgba(240, 165, 0, 0.3); }
+}
+
+/* Balance pill */
+.balance-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 999px;
+    padding: 3px 6px 3px 10px;
+    font-size: 0.72rem;
+    color: var(--text, #d4dce8);
+    transition: background 0.2s;
+}
+.balance-pill:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+#balanceValue {
+    min-width: 52px;
+    letter-spacing: 0.02em;
+}
+
+.btn-eye {
+    background: none;
+    border: none;
+    color: var(--muted, #8b8b9a);
+    cursor: pointer;
+    padding: 2px;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+    border-radius: 4px;
+}
+.btn-eye:hover {
+    color: var(--text, #d4dce8);
+}
+.btn-eye.hidden-balance svg {
+    opacity: 0.4;
+}
+
+body.light-mode .balance-pill {
+    background: rgba(15, 23, 42, 0.05);
+    border-color: rgba(15, 23, 42, 0.08);
+}
+body.light-mode .badge-demo {
+    background: rgba(34, 197, 94, 0.1);
+}
+body.light-mode .badge-real {
+    background: rgba(240, 165, 0, 0.1);
 }
