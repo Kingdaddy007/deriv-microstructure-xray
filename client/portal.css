@@ -22,6 +22,7 @@ body, html {
     font-family: 'Inter', sans-serif;
     color: var(--text-main);
     -webkit-font-smoothing: antialiased;
+    -webkit-user-select: none;
     user-select: none;
 }
 
@@ -126,8 +127,8 @@ body, html {
 /* ── Glass Panel (Ready State) ── */
 .glass-panel {
     background: var(--panel-bg);
-    backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
+    backdrop-filter: blur(20px);
     border: 1px solid var(--panel-border);
     border-radius: 16px;
     padding: 2.5rem 2.5rem 1.5rem;

@@ -25,7 +25,7 @@ If a future change causes a regression, compare the current behavior against thi
 ### Data Pipeline
 
 | Behavior | Status | Notes |
-|----------|--------|-------|
+| ---------- | -------- | ------- |
 | Deriv WS connection + auth | Working | `derivClient.js` handles reconnection with exponential backoff |
 | Tick stream ingestion | Working | Ticks stored in `tickStore.js` (30k circular buffer) |
 | **Stale-stream watchdog** | **Working** | Forces reconnect after 8s of no ticks — prevents tick freeze/fast-forward |
@@ -39,7 +39,7 @@ If a future change causes a regression, compare the current behavior against thi
 ### Chart Rendering
 
 | Behavior | Status | Notes |
-|----------|--------|-------|
+| ---------- | -------- | ------- |
 | Lazy chart initialization | Working | Charts created on first tab visit, read from `candleBuf` (not stale `pendingData`) |
 | Tab switching | Working | `activateTab()` inits chart if needed, then resizes |
 | Fullscreen toggle (single view) | Working | `resizeChartsAndOverlays()` handles chart + overlay re-sync |
@@ -54,7 +54,7 @@ If a future change causes a regression, compare the current behavior against thi
 ### Overlay System
 
 | Behavior | Status | Notes |
-|----------|--------|-------|
+| ---------- | -------- | ------- |
 | `findMainPaneCanvas()` accuracy | Working | Excludes all 4 overlay canvas classes from search |
 | TimeBlockOverlay `_syncToPane()` on every render | Working | Line 371 of `TimeBlockOverlay.js` |
 | LiquidityEqOverlay `_syncToPane()` on every render | Working | Line 395 of `LiquidityEqOverlay.js` |
@@ -67,7 +67,7 @@ If a future change causes a regression, compare the current behavior against thi
 ### Trading System
 
 | Behavior | Status | Notes |
-|----------|--------|-------|
+| ---------- | -------- | ------- |
 | Single-click trade execution | Working | Auto-quote + auto-buy, no confirmation modal |
 | Trade result handling | Working | `_mergeTradeUpdate()` correctly handles race conditions |
 | No duplicate trades | Working | Removed `else` branch that created duplicates |
@@ -80,7 +80,7 @@ If a future change causes a regression, compare the current behavior against thi
 ### CSS/Layout
 
 | Behavior | Status | Notes |
-|----------|--------|-------|
+| ---------- | -------- | ------- |
 | `.panel-content` color | Working | Uses `var(--muted)` (was broken: `var(--text-muted)` undefined) |
 | Grid layout (split view) | Working | CSS consolidated — no conflicting triple declarations |
 | Tab bar styling | Working | Removed dead duplicate `.tab-bar` selector |
@@ -99,7 +99,7 @@ These are the functions that matter most. If something breaks, check these first
 ### App.js (client/js/core/App.js)
 
 | Function/Section | ~Line | What It Does |
-|-----------------|-------|--------------|
+| ----------------- | ------- | -------------- |
 | `normalizeTf()` | 80 | Normalizes TF strings (tick, 5s, 10s, 15s, 30s, 1m, 2m, 5m) |
 | `ChartSlot` class | 130 | Chart lifecycle: init, setData, update, destroy |
 | `ChartSlot.init()` | 170 | Lazy chart creation, reads from `candleBuf`, creates overlays |
@@ -119,20 +119,20 @@ These are the functions that matter most. If something breaks, check these first
 ### ChartHelpers.js (client/js/utils/ChartHelpers.js)
 
 | Function | ~Line | What It Does |
-|----------|-------|--------------|
+| ---------- | ------- | -------------- |
 | `findMainPaneCanvas()` | 45 | Finds LWC's internal canvas, excluding overlay canvases |
 
 ### TradingPanel.js (client/js/trading/TradingPanel.js)
 
 | Function | ~Line | What It Does |
-|----------|-------|--------------|
+| ---------- | ------- | -------------- |
 | `_mergeTradeUpdate()` | 370 | Handles race condition: no duplicate creation, no outcome downgrade |
 | `_renderHistory()` | 430 | Trade history display with truncated IDs, "settling" for pending |
 
 ### TradeOverlay.js (client/js/overlays/TradeOverlay.js)
 
 | Function | ~Line | What It Does |
-|----------|-------|--------------|
+| ---------- | ------- | -------------- |
 | `_render()` | 119 | Calls `_syncToPane()` then draws barrier lines + flags |
 | `_syncToPane()` | 61 | Measures LWC canvas position relative to container |
 
@@ -141,7 +141,7 @@ These are the functions that matter most. If something breaks, check these first
 ## File Versions (Cache Bust)
 
 | File | Version | Updated |
-|------|---------|---------|
+| ------ | --------- | --------- |
 | `style.css` | `?v=19` | 2026-03-16 |
 | `trading.css` | `?v=11` | 2026-03-16 |
 | `App.js` | `?v=55` | 2026-03-16 |
@@ -155,7 +155,7 @@ After modifying any client file, bump the version in `index.html` or the browser
 ### Session 1 (prior session)
 
 | Bug | Root Cause | Fix |
-|-----|-----------|-----|
+| ----- | ----------- | ----- |
 | Duplicate trades in history | `_mergeTradeUpdate()` `else` branch created new entries when contract_update arrived before trade_result | Removed the `else` branch |
 | Status stuck PENDING | Server's `contract_update` with `outcome:'pending'` overwrote locally-detected `outcome:'won'` | Added outcome downgrade guard |
 | Long contract IDs overflow UI | Full Deriv contract IDs too wide for history panel | Truncated to `#...{last6}` |
@@ -164,7 +164,7 @@ After modifying any client file, bump the version in `index.html` or the browser
 ### Session 2 — First Audit (16 issues found, 13 fixed, 1 skipped, 2 non-bugs)
 
 | # | Bug | Fix | File |
-|---|-----|-----|------|
+| --- | ----- | ----- | ------ |
 | 1 | 2m timeframe broken in grid init | Added `'2m': 120` to init tfMap | `App.js` |
 | 2 | Grid countdown shows `--` for grid panels | `updateCountdowns()` reads grid TF via `getGridTf()` | `App.js` |
 | 3 | Dead duplicate `.tab-bar` CSS selector | Removed duplicate | `style.css` |
@@ -181,7 +181,7 @@ After modifying any client file, bump the version in `index.html` or the browser
 ### Session 2 — Second Audit (6 issues found, 6 fixed)
 
 | # | Bug | Fix | File |
-|---|-----|-----|------|
+| --- | ----- | ----- | ------ |
 | 1 | `rebuildGridPanel()` tfMap missing `'2m': 120` | Added `'2m': 120` to rebuild tfMap | `App.js` |
 | 2 | `TradeOverlay._render()` doesn't call `_syncToPane()` | Added `_syncToPane()` at start of `_render()` | `TradeOverlay.js` |
 | 3 | Grid resizer mouseup doesn't trigger overlay re-sync | Replaced manual `applyOptions` with `resizeChartsAndOverlays()` | `App.js` |

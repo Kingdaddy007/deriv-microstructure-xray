@@ -32,7 +32,7 @@ Cipher is a purpose-built trading terminal for executing touch/no-touch contract
 
 ## Architecture
 
-```
+```text
 Deriv API (WS)
       |
       v
@@ -76,7 +76,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 ### Charting
 
 | Feature | Description |
-|---------|-------------|
+| --------- | ------------- |
 | **8 Timeframes** | Tick, 5s, 10s, 15s, 30s, 1m, 2m, 5m |
 | **Split Grid** | Side-by-side comparison with independent timeframe selectors |
 | **Fullscreen** | Any chart view can go fullscreen; split view can fullscreen together |
@@ -86,7 +86,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 ### Overlays
 
 | Feature | Description |
-|---------|-------------|
+| --------- | ------------- |
 | **Time Block Boundaries** | 5-minute and 15-minute block visualization with quadrant stripes |
 | **Liquidity & Equilibrium** | High/Low/Mid50 levels computed from block structure |
 | **Trade Barriers** | Finite-length barrier lines for active contracts (canvas overlay) |
@@ -95,7 +95,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 ### Trading
 
 | Feature | Description |
-|---------|-------------|
+| --------- | ------------- |
 | **Single-Click Execution** | Auto-quote + auto-buy in one click (hidden two-step Deriv API flow) |
 | **Touch/No-Touch Contracts** | Barrier direction (up/down), freeze/follow modes |
 | **Live Contract Tracking** | Real-time P&L color updates during contract lifetime |
@@ -105,7 +105,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 ### Analytics
 
 | Feature | Description |
-|---------|-------------|
+| --------- | ------------- |
 | **GBM Probability** | Geometric Brownian Motion theoretical touch probability |
 | **Empirical Probability** | Historical reach rate from observed data |
 | **Calculated Edge** | Real-time edge detection (Combined prob vs. implied prob) |
@@ -118,7 +118,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 ## Tech Stack
 
 | Layer | Technology |
-|-------|-----------|
+| ------- | ----------- |
 | **Server** | Node.js, Express, ws (WebSocket), better-sqlite3 |
 | **Client** | Vanilla JavaScript (ES6 modules), Canvas 2D API |
 | **Charting** | Lightweight Charts v5 (TradingView) |
@@ -129,7 +129,7 @@ For detailed architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Project Structure
 
-```
+```text
 touch-edge-system/
 |
 +-- client/                          # Frontend (served as static files)
@@ -194,26 +194,26 @@ git clone https://github.com/Kingdaddy007/deriv-microstructure-xray.git
 cd deriv-microstructure-xray
 ```
 
-2. Install dependencies:
+1. Install dependencies:
 
 ```bash
 npm install
 ```
 
-3. Create a `.env` file in the project root:
+1. Create a `.env` file in the project root:
 
 ```env
 DERIV_API_TOKEN=your_demo_token_here
 DERIV_APP_ID=your_app_id_here
 ```
 
-4. Start the server:
+1. Start the server:
 
 ```bash
 npm start
 ```
 
-5. Open `http://localhost:8080` in your browser.
+1. Open `http://localhost:8080` in your browser.
 
 ---
 
@@ -246,7 +246,7 @@ Charts are only created when their tab is first visited. This prevents creating 
 ## Documentation Map
 
 | Document | Purpose | Read When |
-|----------|---------|-----------|
+| ---------- | --------- | ----------- |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Component map, data flow, buffer rules, test approach | Understanding the system |
 | [DECISIONS.md](DECISIONS.md) | Why things are built the way they are | Before changing anything |
 | [AUDIT.md](AUDIT.md) | Full security + performance + architecture audit | Planning improvements |
@@ -263,7 +263,7 @@ npm test
 ```
 
 | Suite | Tests | Coverage |
-|-------|-------|----------|
+| ------- | ------- | ---------- |
 | `tests/core_logic.test.js` | 7 | VIEW/LIVE anchor logic, buffer hygiene, tick dedup |
 | `server/candleAggregator.test.js` | 5 | Candle construction, boundary handling, gap-fill |
 | `server/reachGridEngine.test.js` | 5 | Reach rate computation, incomplete windows |
@@ -278,7 +278,7 @@ Tests are behavior-focused with concrete inputs and outputs. Every bug fix shoul
 CSS and JS files use `?v=N` query parameters in `index.html`. After modifying a client file, bump its version number or the browser will serve stale content.
 
 | File | Current Version |
-|------|----------------|
+| ------ | ---------------- |
 | `style.css` | `?v=19` |
 | `trading.css` | `?v=11` |
 | `App.js` | `?v=55` |

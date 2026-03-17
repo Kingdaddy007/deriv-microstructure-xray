@@ -196,7 +196,7 @@ Honest assessment: the interesting math works. The software engineering around i
 ### LOW (Nice to Have)
 
 | # | Issue | Location |
-|---|-------|----------|
+| --- | ------- | ---------- |
 | L1 | `EDGE_STRONG/MODERATE/MINIMUM` — dead config, never referenced | `server/config.js:45-47` |
 | L2 | `_toPx` defined twice, first definition is dead code | `client/js/drawing/DrawingManager.js:92-109` |
 | L3 | Intermediate candles lost silently during disconnects | `server/candleAggregator.js:22-28` |
@@ -223,7 +223,7 @@ Honest assessment: the interesting math works. The software engineering around i
 ## PRIORITIZED FIX LIST
 
 | Priority | Fix | Effort | Impact |
-|----------|-----|--------|--------|
+| ---------- | ----- | -------- | -------- |
 | 1 | Rotate the exposed API token | 5 min | Eliminates immediate financial risk |
 | 2 | Add WS authentication | 2-3 hrs | Prevents unauthorized trade execution |
 | 3 | Add server-side trade validation (max stake, demo gate, balance check) | 2-3 hrs | Prevents catastrophic financial loss |

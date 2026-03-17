@@ -51,7 +51,7 @@ Full audit report covering all 10 review lenses (Intent, Correctness, Maintainab
 Error Handling, Security, Performance, Testing, Architecture, Blast Radius):
 
 | Finding | Severity | Status |
-|---------|----------|--------|
+| --------- | ---------- | -------- |
 | Stale-stream detection (tick freeze) | 🔴 Critical | Fixed |
 | Pending request leak on disconnect | 🔴 Critical | Fixed |
 | Balance sub not restored after reconnect | 🟠 High | Fixed (auto-subscribes on auth) |

@@ -28,6 +28,7 @@ The sidebar has five competing sections at equal visual weight: PARAMETERS, TRAD
 **What a trader needs first:** Current price + barrier distance. That is the decision-critical signal. Right now it is buried — the current spot price does not appear in the sidebar at all. The trader has to read the chart to find it.
 
 **What is wrong:**
+
 - "PARAMETERS" and "TRADING" headings are the same size, weight, and colour as everything else
 - The barrier input (`2.0`) and ROI (`109`) are the most important trading parameters but have no visual emphasis
 - The "CHECKING..." badge sits at the same visual weight as a section header
@@ -38,7 +39,7 @@ The sidebar has five competing sections at equal visual weight: PARAMETERS, TRAD
 ### 2. VISUAL CONSISTENCY — Broken in several places
 
 | Element | Problem |
-|---------|---------|
+| --------- | --------- |
 | Tab bar (Tick / 5s / 10s...) | Active tab uses a blue pill in normal view. In fullscreen it is replaced by a dropdown. Two different navigation patterns for the same action. |
 | Overlay controls (`5m L`, `15m L`, `Mid`, `[3]`, `LIVE`) | Rendered as small badges sitting under the timeframe dropdown with no visual grouping. They look like tags, not controls. |
 | `LIVE` badge | Filled pill in fullscreen view, outlined pill in normal view. Inconsistent between layouts. |
@@ -53,6 +54,7 @@ The sidebar has five competing sections at equal visual weight: PARAMETERS, TRAD
 The dark background is the right call for a trading terminal. But colour usage is not disciplined.
 
 **Problems:**
+
 - The block overlays (coloured quadrant boxes) mix muted blue, red-brown, green, and purple. With 4 charts in split view the entire canvas reads as a sea of coloured rectangles. The overlays compete with the candles rather than framing them.
 - Cyan (`#00e5ff`) is used for the barrier line. Correct for high visibility. But nothing else in the sidebar uses that cyan — it feels disconnected from the design system.
 - `CONFIRM TRADE` (green) and `GET QUOTE` (blue) are the same width and visual weight. They should not be. GET QUOTE is exploratory. CONFIRM TRADE is consequential. Consequential actions should look heavier and more deliberate.
@@ -98,11 +100,13 @@ GET QUOTE → [see price] → CONFIRM TRADE → [executed]
 The chart rendering itself is clean. LightweightCharts is doing its job well. Candles are readable. Price scale is correct.
 
 **What works:**
+
 - The `LIVE` badge is a good pattern — clear mode indicator
 - The barrier line with label is a genuinely useful overlay
 - The split grid concept (comparing timeframes side by side) is smart for multi-timeframe analysis
 
 **What does not work:**
+
 - **Block overlays are too opaque.** The coloured quadrant blocks visually dominate the candles. The candles should be the hero — overlays are support structure. They need to be 30-40% more transparent.
 - **Split view panels are too small.** Each pane in the 4-panel layout is roughly 350px wide. Candles are cramped, overlay labels (`5m`, `15m`) overlap the price action, and axes become tight. Needs fewer panes or a per-pane fullscreen toggle.
 - **`5m` and `15m` block labels** appear directly on the canvas at the top-left of each block. When adjacent blocks are close together they stack and become illegible.
@@ -128,7 +132,7 @@ The sidebar is the nerve centre — parameters, analytics, trading — but reads
 ## PREMIUM FEEL — GAP ANALYSIS
 
 | Dimension | Current State | Premium Standard |
-|-----------|--------------|-----------------|
+| ----------- | -------------- | ----------------- |
 | Visual depth | Flat, uniform dark panels | Subtle panel elevation, border separation, micro-shadows |
 | Data density | Important metrics hidden in collapsed sections | Key metrics always visible: price, barrier distance, probability, time remaining |
 | Interaction feedback | Buttons click without animation | Subtle press state, loading spinners on async actions |
@@ -143,7 +147,7 @@ The sidebar is the nerve centre — parameters, analytics, trading — but reads
 ## PRIORITIZED FIX LIST
 
 | Priority | Fix | Impact |
-|----------|-----|--------|
+| ---------- | ----- | -------- |
 | 1 | Add trade confirmation modal — arm/fire pattern or timed confirmation | Prevents accidental financial loss |
 | 2 | Add proposal expiry timer — countdown next to cost/payout once quoted | Trader knows when quote is stale |
 | 3 | Replace "Please log in." with an actual login UI — token input + connect button | System is unusable without it; red text is not a CTA |
@@ -166,6 +170,7 @@ The charts work. The data is real. The overlay concept is genuinely useful for a
 The gap to premium is about 3-4 focused design sessions. Not a rewrite. Not a redesign. Targeted improvements to hierarchy, colour discipline, sidebar layout, and the trade flow would move this from 38 to 70+ on premium feel.
 
 The three highest-leverage changes in order:
+
 1. Trade confirmation modal — safety first
 2. Sidebar redesign — hierarchy and breathing room
 3. Overlay opacity reduction — let the candles breathe
