@@ -4,6 +4,73 @@ All notable changes to this project will be documented in this file.
 
 ---
 
+## [1.3.0] - 2026-03-17
+
+### Reliability & Resilience Hardening
+
+Full system code audit across all 9 server modules and client trading panel. Identified and fixed
+critical reliability gaps affecting real-time data integrity and balance accuracy.
+
+### Fixed
+
+- **Live balance not updating after trades**: `derivClient.js` only captured balance once at
+  authorization time. Added `subscribeBalance()` method that subscribes to Deriv's live `balance`
+  API stream (`subscribe: 1`). Balance now updates in real-time on every trade, deposit, or
+  withdrawal. `index.js` broadcasts balance changes to all connected clients and keeps cached
+  `accountInfo` synchronized.
+
+- **Tick freeze / fast-forward behavior**: Added stale-stream watchdog to `derivClient.js`. If
+  no tick arrives for 8 seconds (V100_1S emits ~1 tick/sec), the client forces a WebSocket
+  reconnect. Previously, the 25s `ping` interval kept the TCP connection alive but could not
+  detect when the data stream went silent (network hiccup, ISP packet loss). This caused the
+  chart to freeze, then fast-forward all buffered ticks when connectivity resumed.
+
+- **Pending request memory leak on disconnect**: `handleDisconnect()` now rejects all pending
+  `sendRequest()` callbacks and clears the `_pendingRequests` map. Previously, stale callbacks
+  from a dead socket could resolve with responses from a new connection after reconnect, causing
+  silent data corruption in trade responses.
+
+- **Duplicate REAL/DEMO badge in trading panel**: Removed the redundant `acctBadge` from
+  `TradingPanel.js`. The server sends both demo and real `account_info` on connect — whichever
+  arrived last overwrote the badge, showing "REAL (USD)" even when in demo mode. The top nav
+  bar already displays account mode and balance correctly.
+
+### Optimized
+
+- **Real-account client skips tick subscription**: `derivReal` now passes
+  `{ subscribeTicks: false }` to its `DerivClient` constructor. The real-account client only
+  needs authorization and balance — tick data comes from the primary demo client. Saves bandwidth
+  on constrained networks.
+
+- **Configurable tick subscription**: `DerivClient` constructor accepts an `options` object with
+  `subscribeTicks` flag. When `false`, skips tick stream subscription and stale-stream watchdog.
+
+### Audit Results
+
+Full audit report covering all 10 review lenses (Intent, Correctness, Maintainability, Risk,
+Error Handling, Security, Performance, Testing, Architecture, Blast Radius):
+
+| Finding | Severity | Status |
+|---------|----------|--------|
+| Stale-stream detection (tick freeze) | 🔴 Critical | Fixed |
+| Pending request leak on disconnect | 🔴 Critical | Fixed |
+| Balance sub not restored after reconnect | 🟠 High | Fixed (auto-subscribes on auth) |
+| `_logReturns.shift()` O(n) in volatilityEngine | 🟠 High | Documented (n=300, acceptable) |
+| Reach grid allocates full array every 5s | 🟠 High | Documented (bounded by lookback) |
+| History fetch creates separate WS per page | 🟡 Medium | Documented |
+| No trade execution rate limiting | 🟡 Medium | Documented |
+| Candle gap-fill unbounded loop | 🟡 Medium | Documented |
+
+### Strengths Identified
+
+- TickStore circular buffer — O(1) with zero GC pressure (Float64Array)
+- TradingEngine lifecycle — proper subscription tracking, cleanup, re-subscribe on reconnect
+- EdgeCalculator v3 — neutral, decision-free with warnings[] (respects trader autonomy)
+- Exponential backoff reconnection capped at 30s
+- Graceful shutdown handler covering WebSockets, HTTP, and SQLite
+
+---
+
 ## [1.2.0] - 2026-03-16
 
 ### Comprehensive Bug Audit & Fix

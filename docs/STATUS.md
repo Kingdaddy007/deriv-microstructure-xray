@@ -1,9 +1,9 @@
 # Cipher Trading Terminal — Current Status
 
-**Last verified:** 2026-03-16
-**Verified by:** Anti-Gravity + OpenCode dual audit
-**Terminal version:** 1.2.0 (post-audit)
-**Overall state:** Functional. All identified bugs fixed. Ready for live trading sessions on demo account.
+**Last verified:** 2026-03-17
+**Verified by:** Anti-Gravity full system audit (9 server modules + client)
+**Terminal version:** 1.3.0 (reliability hardening)
+**Overall state:** Functional. Critical reliability gaps fixed. Stale-stream watchdog active. Ready for live trading sessions.
 
 ---
 
@@ -28,10 +28,13 @@ If a future change causes a regression, compare the current behavior against thi
 |----------|--------|-------|
 | Deriv WS connection + auth | Working | `derivClient.js` handles reconnection with exponential backoff |
 | Tick stream ingestion | Working | Ticks stored in `tickStore.js` (30k circular buffer) |
+| **Stale-stream watchdog** | **Working** | Forces reconnect after 8s of no ticks — prevents tick freeze/fast-forward |
+| **Live balance subscription** | **Working** | `subscribeBalance()` auto-called after auth, broadcasts to all clients |
+| **Pending request cleanup** | **Working** | All pending callbacks rejected and cleared on disconnect |
 | Candle aggregation (7 TFs) | Working | 5s, 10s, 15s, 30s, 1m, 2m, 5m via `candleAggregator.js` |
 | Gap-fill with flat candles | Working | Both `processTick()` and `makeHistoryCandles()` gap-fill consistently |
 | History load on connect | Working | `loadHistory()` populates `candleBuf` for all TFs |
-| WS broadcast to clients | Working | `index.js` broadcasts tick, candle_closed, candle_update, countdown |
+| WS broadcast to clients | Working | `index.js` broadcasts tick, candle_closed, candle_update, countdown, balance |
 
 ### Chart Rendering
 
