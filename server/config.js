@@ -31,7 +31,7 @@ module.exports = {
     MAX_TICK_HISTORY: 30000,
 
     // Volatility calculation windows (in ticks = seconds for 1s indices)
-    VOL_WINDOWS: [10, 30, 60, 120, 300],
+    VOL_WINDOWS: [7, 10, 30, 60, 120, 300],
 
     // Baseline reference window for vol ratio
     VOL_BASELINE_WINDOW: 300,

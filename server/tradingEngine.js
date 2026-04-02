@@ -13,7 +13,10 @@ class TradingEngine extends EventEmitter {
         this.accountInfo = null;     // Set when authorize event fires
         this.tradeHistory = [];      // In-memory session log
         this.maxHistorySize = 50;    // Keep last 50 trades
-        this.trackedContracts = new Map(); // contractId -> { ownerId, subscriptionId, isSettled }
+        this.trackedContracts = new Map(); // contractId -> { ownerId, subscriptionId, isSettled, timestamp }
+
+        // Stale contract watchdog
+        this._staleWatchdog = setInterval(() => this._pollStaleContracts(), 15000);
 
         // Listen for account info from DerivClient's authorize event
         this.deriv.on('authorize', (info) => {
@@ -124,10 +127,16 @@ class TradingEngine extends EventEmitter {
 
     async _subscribeToContract(contractId, ownerId = null) {
         const contractKey = String(contractId);
-        const tracked = this.trackedContracts.get(contractKey) || { ownerId: null, subscriptionId: null, isSettled: false };
+        const tracked = this.trackedContracts.get(contractKey) || { 
+            ownerId: null, 
+            subscriptionId: null, 
+            isSettled: false,
+            timestamp: Date.now()
+        };
 
         if (ownerId !== null && ownerId !== undefined) tracked.ownerId = ownerId;
         tracked.isSettled = false;
+        tracked.timestamp = Date.now();
         this.trackedContracts.set(contractKey, tracked);
 
         const response = await this.deriv.sendRequest({
@@ -156,6 +165,38 @@ class TradingEngine extends EventEmitter {
         }
     }
 
+    async _pollStaleContracts() {
+        if (!this.deriv.isConnected) return;
+
+        const now = Date.now();
+        for (const [contractId, tracked] of this.trackedContracts.entries()) {
+            if (tracked.isSettled) continue;
+            
+            // If the contract has been pending for over 60 seconds since we last tracked or updated it,
+            // we manually poll its status without a stream just to be sure Deriv didn't drop us.
+            if (now - tracked.timestamp > 60000) {
+                try {
+                    const response = await this.deriv.sendRequest({
+                        proposal_open_contract: 1,
+                        contract_id: contractId
+                    });
+                    
+                    if (response.proposal_open_contract) {
+                        const status = response.proposal_open_contract.status || 'unknown';
+                        const isSold = response.proposal_open_contract.is_sold;
+                        console.log(`[TradingEngine] 🔍 Watchdog polled #${contractId}: status=${status}, is_sold=${isSold}`);
+                        // Update the timestamp so we don't spam the poll
+                        tracked.timestamp = now;
+                        this.trackedContracts.set(contractId, tracked);
+                        this._handleContractUpdate(response.proposal_open_contract);
+                    }
+                } catch (err) {
+                    console.warn(`[TradingEngine] Watchdog poll failed for #${contractId}: ${err.message}`);
+                }
+            }
+        }
+    }
+
     _handleContractUpdate(openContract) {
         const contractId = openContract?.contract_id || openContract?.id;
         if (!contractId) return;
@@ -170,6 +211,7 @@ class TradingEngine extends EventEmitter {
 
         const outcome = this._normalizeOutcome(openContract, tracked.ownerId);
         tracked.isSettled = outcome.isSettled;
+        tracked.timestamp = Date.now(); // Update timestamp on any active info
         this.trackedContracts.set(contractKey, tracked);
         this._updateTradeHistory(outcome);
 

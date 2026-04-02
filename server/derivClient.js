@@ -112,7 +112,15 @@ class DerivClient extends EventEmitter {
                 histWs.close(); // Graceful close instead of terminate() to prevent zombie connections
                 try {
                     const msg = JSON.parse(data.toString());
-                    if (msg.error || !msg.history) { resolve([]); return; }
+                    if (msg.error) {
+                        console.error(`[DerivClient] History API error:`, msg.error.message);
+                        resolve([]);
+                        return;
+                    }
+                    if (!msg.history) {
+                        resolve([]);
+                        return;
+                    }
                     const ticks = msg.history.times.map((epoch, i) => ({
                         epoch, quote: msg.history.prices[i]
                     }));
@@ -120,7 +128,11 @@ class DerivClient extends EventEmitter {
                 } catch { resolve([]); }
             });
 
-            histWs.on('error', () => { clearTimeout(timeout); resolve([]); });
+            histWs.on('error', (err) => { 
+                console.error(`[DerivClient] History WS error:`, err?.message || err);
+                clearTimeout(timeout); 
+                resolve([]); 
+            });
         });
     }
 
@@ -147,8 +159,9 @@ class DerivClient extends EventEmitter {
                 this.ws.send(JSON.stringify({ authorize: token }));
             }
 
-            // Subscribe to live ticks (only for data clients, not trade-only clients)
-            if (this.subscribeTicks) {
+            // Subscribe to live ticks ONLY if NOT authorizing right now
+            // If we are authorizing, we must wait for 'authorize' response to subscribe
+            if (this.subscribeTicks && !token) {
                 this.ws.send(JSON.stringify({
                     ticks: this.symbol,
                     subscribe: 1
@@ -209,8 +222,17 @@ class DerivClient extends EventEmitter {
                     console.log(`[DerivClient]   Login ID: ${loginId}`);
                     console.log(`[DerivClient]   Email: ${acctInfo.email || 'N/A'}`);
                     this.emit('authorize', { isVirtual, loginId, email: acctInfo.email, currency: acctInfo.currency, balance: acctInfo.balance });
+                    
                     // Auto-subscribe to live balance stream after authorization
                     this.subscribeBalance();
+
+                    // If token was present, we delayed tick subscription until now to avoid race conditions
+                    if (this.subscribeTicks) {
+                        this.ws.send(JSON.stringify({
+                            ticks: this.symbol,
+                            subscribe: 1
+                        }));
+                    }
                 }
 
                 if (msg.msg_type === 'tick' && msg.tick) {
@@ -247,9 +269,10 @@ class DerivClient extends EventEmitter {
         });
 
         this.ws.on('error', (err) => {
-            console.error(`[DerivClient] WS Error (${activeUrl}): ${err.message}`);
+            const errMsg = err && err.message ? err.message : String(err);
+            console.error(`[DerivClient] WS Error (${activeUrl}): ${errMsg}`);
             // If we fail specifically on TLS/Network right away, cycle to the next URL immediately for the next attempt
-            if (err.message.includes('disconnected') || err.message.includes('network')) {
+            if (errMsg.includes('disconnected') || errMsg.includes('network') || errMsg.includes('ENOTFOUND')) {
                 this._cycleUrl();
             }
         });

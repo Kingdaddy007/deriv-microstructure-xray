@@ -945,6 +945,26 @@ function connectWebSocket() {
                     if (tradingPanel) tradingPanel.handleMessage(msg);
                     handleTradeSettlement(msg.data);
                     break;
+                // Cipher Bot status updates
+                case 'bot_status':
+                    _updateBotPanel(msg.data);
+                    break;
+                // Gate status (available for dashboard if needed)
+                case 'gate_status':
+                    break;
+                // Quadrant Break events
+                case 'quadrant_bot_status':
+                    _updateQbPanel(msg.data);
+                    break;
+                case 'quadrant_gate_status':
+                    _updateGateStatus(msg.data);
+                    break;
+                case 'active_strategy':
+                    _switchStrategyUI(msg.data.strategy);
+                    break;
+                case 'quadrant_trade_executed':
+                case 'quadrant_trade_outcome':
+                    break; // Logged in console by controller, no extra UI action needed yet
                 // Live contract update — route to both TradingPanel and App (color changes)
                 case 'contract_update':
                     if (tradingPanel) tradingPanel.handleMessage(msg);
@@ -956,6 +976,264 @@ function connectWebSocket() {
 }
 connectWebSocket();
 
+// ── Cipher Bot Panel ──
+let _botEnabled = false;
+
+function _updateBotPanel(status) {
+    const label = document.getElementById('botStateLabel');
+    const toggle = document.getElementById('botToggleBtn');
+    const unpause = document.getElementById('botUnpauseBtn');
+    const stats = document.getElementById('botSessionStats');
+    const lossCounter = document.getElementById('botLossCounter');
+
+    if (!label) return;
+
+    _botEnabled = status.enabled;
+
+    // State badge
+    if (status.paused) {
+        label.textContent = 'PAUSED';
+        label.className = 'bot-state-badge bot-paused';
+    } else if (status.enabled) {
+        label.textContent = status.pendingExecution ? 'TRADING...' : 'ACTIVE';
+        label.className = 'bot-state-badge bot-active';
+    } else {
+        label.textContent = 'OFF';
+        label.className = 'bot-state-badge bot-off';
+    }
+
+    // Toggle button
+    if (toggle) {
+        toggle.textContent = status.enabled ? 'DISABLE' : 'ENABLE';
+        toggle.classList.toggle('bot-enabled', status.enabled);
+    }
+
+    // Unpause button
+    if (unpause) {
+        unpause.classList.toggle('hidden', !status.paused);
+    }
+
+    // Loss counter
+    if (lossCounter) {
+        lossCounter.textContent = status.consecutiveLosses > 0
+            ? `${status.consecutiveLosses} loss${status.consecutiveLosses > 1 ? 'es' : ''}`
+            : '';
+    }
+
+    // Session stats
+    if (stats && status.sessionStats) {
+        const s = status.sessionStats;
+        if (s.totalTrades > 0) {
+            const pnl = s.totalPayout - s.totalStaked;
+            const pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+            const pnlColor = pnl >= 0 ? '#4ade80' : '#f87171';
+            stats.innerHTML = `${s.totalTrades} trades | ${s.wins}W ${s.losses}L | <span style="color:${pnlColor}">${pnlStr}</span>`;
+        } else {
+            stats.textContent = '';
+        }
+    }
+}
+
+// Bot UI event listeners
+(function initBotControls() {
+    const toggle = document.getElementById('botToggleBtn');
+    const stakeInput = document.getElementById('botStakeInput');
+    const unpause = document.getElementById('botUnpauseBtn');
+
+    if (toggle) {
+        toggle.addEventListener('click', () => {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'bot_toggle', enabled: !_botEnabled }));
+        });
+    }
+
+    if (stakeInput) {
+        stakeInput.addEventListener('change', () => {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'bot_set_stake', value: stakeInput.value }));
+        });
+    }
+
+    if (unpause) {
+        unpause.addEventListener('click', () => {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'bot_unpause' }));
+        });
+    }
+})();
+
+// ── Strategy Switching ──
+let _activeStrategy = 'swarm';
+
+function _switchStrategyUI(strategy) {
+    _activeStrategy = strategy;
+    const botPanel = document.getElementById('botPanel');
+    const qbPanel = document.getElementById('qbPanel');
+    const qbGatePanel = document.getElementById('qbGatePanel');
+    const btnSwarm = document.getElementById('btnSwarm');
+    const btnQuadrant = document.getElementById('btnQuadrant');
+
+    if (strategy === 'swarm') {
+        if (botPanel) botPanel.classList.remove('hidden');
+        if (qbPanel) qbPanel.classList.add('hidden');
+        if (qbGatePanel) qbGatePanel.classList.add('hidden');
+        if (btnSwarm) btnSwarm.classList.add('active');
+        if (btnQuadrant) btnQuadrant.classList.remove('active');
+    } else {
+        if (botPanel) botPanel.classList.add('hidden');
+        if (qbPanel) qbPanel.classList.remove('hidden');
+        if (qbGatePanel) qbGatePanel.classList.remove('hidden');
+        if (btnSwarm) btnSwarm.classList.remove('active');
+        if (btnQuadrant) btnQuadrant.classList.add('active');
+    }
+}
+
+(function initStrategySelector() {
+    const btnSwarm = document.getElementById('btnSwarm');
+    const btnQuadrant = document.getElementById('btnQuadrant');
+
+    if (btnSwarm) {
+        btnSwarm.addEventListener('click', () => {
+            if (_activeStrategy === 'swarm') return;
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'set_strategy', strategy: 'swarm' }));
+        });
+    }
+    if (btnQuadrant) {
+        btnQuadrant.addEventListener('click', () => {
+            if (_activeStrategy === 'quadrant') return;
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'set_strategy', strategy: 'quadrant' }));
+        });
+    }
+})();
+
+// ── Quadrant Bot Panel ──
+let _qbEnabled = false;
+
+function _updateQbPanel(status) {
+    const label = document.getElementById('qbStateLabel');
+    const toggle = document.getElementById('qbToggleBtn');
+    const unpause = document.getElementById('qbUnpauseBtn');
+    const stats = document.getElementById('qbSessionStats');
+    const lossCounter = document.getElementById('qbLossCounter');
+
+    if (!label) return;
+
+    _qbEnabled = status.enabled;
+
+    // State badge
+    if (status.paused) {
+        label.textContent = 'PAUSED';
+        label.className = 'bot-state-badge bot-paused';
+    } else if (status.enabled) {
+        label.textContent = status.pendingExecution ? 'TRADING...' : 'ACTIVE';
+        label.className = 'bot-state-badge bot-active';
+    } else {
+        label.textContent = 'OFF';
+        label.className = 'bot-state-badge bot-off';
+    }
+
+    // Toggle button
+    if (toggle) {
+        toggle.textContent = status.enabled ? 'DISABLE' : 'ENABLE';
+        toggle.classList.toggle('bot-enabled', status.enabled);
+    }
+
+    // Unpause button
+    if (unpause) {
+        unpause.classList.toggle('hidden', !status.paused);
+    }
+
+    // Loss counter
+    if (lossCounter) {
+        lossCounter.textContent = status.consecutiveLosses > 0
+            ? `${status.consecutiveLosses} loss${status.consecutiveLosses > 1 ? 'es' : ''}`
+            : '';
+    }
+
+    // Session stats
+    if (stats && status.sessionStats) {
+        const s = status.sessionStats;
+        if (s.totalTrades > 0) {
+            const pnl = s.totalPayout - s.totalStaked;
+            const pnlStr = (pnl >= 0 ? '+' : '') + pnl.toFixed(2);
+            const pnlColor = pnl >= 0 ? '#4ade80' : '#f87171';
+            stats.innerHTML = `${s.totalTrades} trades | ${s.wins}W ${s.losses}L | <span style="color:${pnlColor}">${pnlStr}</span> | ${s.skips} skips`;
+        } else {
+            stats.textContent = s.skips > 0 ? `${s.skips} skips` : '';
+        }
+    }
+}
+
+// QB bot UI event listeners
+(function initQbControls() {
+    const toggle = document.getElementById('qbToggleBtn');
+    const stakeInput = document.getElementById('qbStakeInput');
+    const unpause = document.getElementById('qbUnpauseBtn');
+
+    if (toggle) {
+        toggle.addEventListener('click', () => {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'qb_toggle', enabled: !_qbEnabled }));
+        });
+    }
+
+    if (stakeInput) {
+        stakeInput.addEventListener('change', () => {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'qb_set_stake', value: stakeInput.value }));
+        });
+    }
+
+    if (unpause) {
+        unpause.addEventListener('click', () => {
+            if (!ws || ws.readyState !== 1) return;
+            ws.send(JSON.stringify({ type: 'qb_unpause' }));
+        });
+    }
+})();
+
+// ── Quadrant Gate Status Display ──
+function _updateGateStatus(data) {
+    const gateKeys = ['gate0', 'gate1', 'gate2', 'gate3', 'gate4'];
+
+    gateKeys.forEach((key, i) => {
+        const gate = data.gates?.[key];
+        const row = document.getElementById(`qbGate${i}`);
+        const valEl = document.getElementById(`qbGate${i}Val`);
+
+        if (!row || !gate) return;
+
+        // Set pass/fail class
+        row.classList.toggle('gate-passed', gate.passed);
+        row.classList.toggle('gate-failed', !gate.passed);
+
+        // Update indicator icon
+        const indicator = row.querySelector('.qb-gate-indicator');
+        if (indicator) indicator.textContent = gate.passed ? '✓' : '✗';
+
+        // Update value
+        if (valEl) {
+            valEl.textContent = gate.value !== null && gate.value !== undefined
+                ? String(gate.value)
+                : '--';
+        }
+    });
+
+    // Signal badge
+    const badge = document.getElementById('qbSignalBadge');
+    if (badge) {
+        badge.textContent = data.signal === 'FIRE'
+            ? `🟢 FIRE ${data.direction}`
+            : `○ SKIP`;
+        badge.className = 'qb-signal-badge ' + (data.signal === 'FIRE' ? 'signal-fire' : 'signal-skip');
+    }
+
+    // Reason text
+    const reason = document.getElementById('qbReason');
+    if (reason) reason.textContent = data.reason || '';
+}
 
 function routeCandleToGrid(tf, candle) {
     if (slots.gridL && slots.gridL.activeTf === tf) {

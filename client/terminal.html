@@ -390,6 +390,85 @@
                     </div>
                 </div>
 
+                <!-- Strategy Selector -->
+                <div class="rs-section" id="strategySelector">
+                    <div class="control-group-label">Strategy</div>
+                    <div class="toggle-group">
+                        <button class="toggle-btn active" id="btnSwarm" title="Cipher Swarm — agent consensus voting">Cipher Swarm</button>
+                        <button class="toggle-btn" id="btnQuadrant" title="Quadrant Break — 5-gate structural pattern">Quadrant Break</button>
+                    </div>
+                </div>
+
+                <!-- Cipher Bot Control Panel (shown when strategy = swarm) -->
+                <div class="rs-section bot-control-panel" id="botPanel">
+                    <div class="control-group-label">Cipher Bot</div>
+                    <div class="bot-status-row">
+                        <span id="botStateLabel" class="bot-state-badge bot-off">OFF</span>
+                        <span id="botLossCounter" class="mono small muted"></span>
+                    </div>
+                    <div class="bot-controls">
+                        <button id="botToggleBtn" class="bot-toggle-btn" title="Enable/Disable Cipher Bot">ENABLE</button>
+                        <div class="input-group bot-stake-group">
+                            <span>Stake $</span>
+                            <input type="number" id="botStakeInput" value="1.00" min="0.35" step="0.50" class="mono" title="Bot stake amount">
+                        </div>
+                    </div>
+                    <div id="botSessionStats" class="bot-session-stats mono small muted"></div>
+                    <button id="botUnpauseBtn" class="bot-unpause-btn hidden" title="Resume after auto-pause">UNPAUSE</button>
+                </div>
+
+                <!-- Quadrant Break Control Panel (shown when strategy = quadrant) -->
+                <div class="rs-section bot-control-panel hidden" id="qbPanel">
+                    <div class="control-group-label">Quadrant Bot</div>
+                    <div class="bot-status-row">
+                        <span id="qbStateLabel" class="bot-state-badge bot-off">OFF</span>
+                        <span id="qbLossCounter" class="mono small muted"></span>
+                    </div>
+                    <div class="bot-controls">
+                        <button id="qbToggleBtn" class="bot-toggle-btn" title="Enable/Disable Quadrant Bot">ENABLE</button>
+                        <div class="input-group bot-stake-group">
+                            <span>Stake $</span>
+                            <input type="number" id="qbStakeInput" value="1.00" min="0.35" step="0.50" class="mono" title="Bot stake amount">
+                        </div>
+                    </div>
+                    <div id="qbSessionStats" class="bot-session-stats mono small muted"></div>
+                    <button id="qbUnpauseBtn" class="bot-unpause-btn hidden" title="Resume after auto-pause">UNPAUSE</button>
+                </div>
+
+                <!-- Quadrant Gate Status (shown when strategy = quadrant) -->
+                <div class="rs-section hidden" id="qbGatePanel">
+                    <div class="control-group-label">5-Gate Status</div>
+                    <div class="qb-gate-list">
+                        <div class="qb-gate-row" id="qbGate0">
+                            <span class="qb-gate-indicator">○</span>
+                            <span class="qb-gate-name">G0: Q1 Structure</span>
+                            <span class="qb-gate-value mono small muted" id="qbGate0Val">--</span>
+                        </div>
+                        <div class="qb-gate-row" id="qbGate1">
+                            <span class="qb-gate-indicator">○</span>
+                            <span class="qb-gate-name">G1: Q1 Clearance</span>
+                            <span class="qb-gate-value mono small muted" id="qbGate1Val">--</span>
+                        </div>
+                        <div class="qb-gate-row" id="qbGate2">
+                            <span class="qb-gate-indicator">○</span>
+                            <span class="qb-gate-name">G2: Q3 Rejection</span>
+                            <span class="qb-gate-value mono small muted" id="qbGate2Val">--</span>
+                        </div>
+                        <div class="qb-gate-row" id="qbGate3">
+                            <span class="qb-gate-indicator">○</span>
+                            <span class="qb-gate-name">G3: Q3 Energy</span>
+                            <span class="qb-gate-value mono small muted" id="qbGate3Val">--</span>
+                        </div>
+                        <div class="qb-gate-row" id="qbGate4">
+                            <span class="qb-gate-indicator">○</span>
+                            <span class="qb-gate-name">G4: Exhaustion</span>
+                            <span class="qb-gate-value mono small muted" id="qbGate4Val">--</span>
+                        </div>
+                    </div>
+                    <div id="qbSignalBadge" class="qb-signal-badge">WAITING</div>
+                    <div id="qbReason" class="mono small muted" style="margin-top:6px; line-height:1.3"></div>
+                </div>
+
                 <!-- Trading Panel (rendered by TradingPanel.js) -->
                 <div id="tradingPanel" class="rs-section rs-trade-mount"></div>
             </aside>
