@@ -252,6 +252,7 @@ app.get('/api/swarm-trades', (req, res) => {
         }
 
         // Use the dynamic query method that properly combines ALL filters
+        filters.strategy = 'swarm';  // Fix: never return QB rows from swarm endpoint
         let trades = botController.queryTrades(filters);
 
         if (format === 'journal') {
@@ -301,6 +302,7 @@ app.get('/api/swarm-stats', (req, res) => {
         }
         
         // Use the dynamic stats query that properly combines ALL filters
+        filters.strategy = 'swarm';  // Fix: never include QB rows in swarm stats
         const stats = botController.queryStats(filters);
         res.json({ success: true, data: stats });
     } catch (err) {
@@ -781,7 +783,7 @@ function shutdown(signal) {
     // 4. Close SQLite databases
     try { probEngine.close(); } catch (_) { /* ignore */ }
     try { botController.close(); } catch (_) { /* ignore */ }
-    // quadrantController has no DB to close (shares tradeLogger via future integration)
+    try { quadrantController.close(); } catch (_) { /* ignore */ }
 
     console.log('[Server] Cleanup complete. Exiting.');
     process.exit(0);

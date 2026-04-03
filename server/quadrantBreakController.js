@@ -20,13 +20,15 @@ const TradeLogger = require('./tradeLogger');
 const EXECUTION_TIMEOUT_MS = 15000; // 15s safety timeout
 
 class QuadrantBreakController extends EventEmitter {
-    constructor({ blockTracker, strategy, tradingEngine, broadcast, accountMode = 'demo' }) {
+    constructor({ blockTracker, strategy, tradingEngine, broadcast, accountMode = 'demo', duration = 2, durationUnit = 'm' }) {
         super();
         this.block = blockTracker;
         this.strategy = strategy;
         this.trading = tradingEngine;
         this.broadcast = broadcast;
         this.accountMode = accountMode;
+        this.duration = duration;
+        this.durationUnit = durationUnit;
 
         // Trade logger
         this.logger = new TradeLogger();
@@ -83,6 +85,24 @@ class QuadrantBreakController extends EventEmitter {
         // Already fired or skipped this block — do nothing
         if (this._firedThisBlock) return;
 
+        // Live preview: broadcast gate status during Q3 (every 5 ticks for performance)
+        if (state.quadrant === 'Q3' && state.q1 && state.q2 && state.q3) {
+            this._q3TickCounter = (this._q3TickCounter || 0) + 1;
+            if (this._q3TickCounter % 5 === 0) {
+                const preview = this.strategy.evaluate(state, barrierDistance);
+                this.broadcast('quadrant_gate_status', {
+                    signal: 'PREVIEW',       // Not actionable — display only
+                    direction: preview.direction,
+                    gates: preview.gates,
+                    reason: preview.reason,
+                    blockStart: state.blockStart,
+                    evaluatedAt: epoch
+                });
+            }
+        } else {
+            this._q3TickCounter = 0;
+        }
+
         // THE CRITICAL MOMENT: Q3 → Q4 transition
         // prevQuadrant is Q3 AND current quadrant is Q4 → first tick of Q4
         if (state.prevQuadrant === 'Q3' && state.quadrant === 'Q4') {
@@ -118,6 +138,22 @@ class QuadrantBreakController extends EventEmitter {
             evaluatedAt: epoch
         });
 
+        // Persist every evaluation (FIRE or SKIP) to DB
+        try {
+            this.logger.logEvaluation({
+                timestamp: epoch,
+                blockStart: blockState.blockStart,
+                signal: result.signal,
+                direction: result.direction,
+                reason: result.reason,
+                gates: result.gates,
+                blockState,
+                barrierDistance
+            });
+        } catch (logErr) {
+            console.error(`[QB] ⚠ Failed to log evaluation: ${logErr.message}`);
+        }
+
         // SKIP — log and do nothing
         if (result.signal === 'SKIP') {
             this.sessionStats.skips++;
@@ -144,8 +180,8 @@ class QuadrantBreakController extends EventEmitter {
                 amount: this.stake,
                 contract_type: 'ONETOUCH',
                 barrier: signedBarrier,
-                duration: 2,
-                duration_unit: 'm',
+                duration: this.duration,
+                duration_unit: this.durationUnit,
                 basis: 'stake',
                 currency: 'USD'
             });
@@ -332,6 +368,21 @@ class QuadrantBreakController extends EventEmitter {
         this._broadcastStatus();
     }
 
+    setDuration(duration, durationUnit) {
+        if (typeof duration === 'number' && Number.isFinite(duration) && duration > 0) {
+            this.duration = duration;
+        }
+        if (typeof durationUnit === 'string' && ['s', 'm', 'h', 't'].includes(durationUnit)) {
+            this.durationUnit = durationUnit;
+        }
+        console.log(`[QB] Duration: ${this.duration}${this.durationUnit}`);
+        this._broadcastStatus();
+    }
+
+    close() {
+        try { this.logger.close(); } catch (_) { /* ignore */ }
+    }
+
     // ── Status ───────────────────────────────────────────
 
     getStatus() {
@@ -340,6 +391,8 @@ class QuadrantBreakController extends EventEmitter {
             enabled: this.enabled,
             paused: this.isPaused,
             stake: this.stake,
+            duration: this.duration,
+            durationUnit: this.durationUnit,
             consecutiveLosses: this.consecutiveLosses,
             pendingExecution: this._pendingExecution,
             firedThisBlock: this._firedThisBlock,

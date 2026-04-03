@@ -1224,10 +1224,16 @@ function _updateGateStatus(data) {
     // Signal badge
     const badge = document.getElementById('qbSignalBadge');
     if (badge) {
-        badge.textContent = data.signal === 'FIRE'
-            ? `🟢 FIRE ${data.direction}`
-            : `○ SKIP`;
-        badge.className = 'qb-signal-badge ' + (data.signal === 'FIRE' ? 'signal-fire' : 'signal-skip');
+        if (data.signal === 'FIRE') {
+            badge.textContent = `🟢 FIRE ${data.direction}`;
+            badge.className = 'qb-signal-badge signal-fire';
+        } else if (data.signal === 'PREVIEW') {
+            badge.textContent = `◉ Q3 FORMING`;
+            badge.className = 'qb-signal-badge';
+        } else {
+            badge.textContent = `○ SKIP`;
+            badge.className = 'qb-signal-badge signal-skip';
+        }
     }
 
     // Reason text

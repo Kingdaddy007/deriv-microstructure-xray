@@ -273,8 +273,8 @@ class QuadrantBreakStrategy {
             };
         }
 
-        // Q3 close must be on the correct side of Q3's midpoint
-        const q3Mid = (q3.high + q3.low) / 2;
+        // Q3 close must be on the correct side of Q3's threshold level
+        const q3Mid = q3.low + (q3.high - q3.low) * this.config.q3CloseSideThreshold;
         const closeOnCorrectSide = direction === 'BUY'
             ? q3.close > q3Mid
             : q3.close < q3Mid;

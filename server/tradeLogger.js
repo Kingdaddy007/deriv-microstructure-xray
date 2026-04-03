@@ -138,6 +138,25 @@ class TradeLogger {
             `);
             console.log('[TradeLogger] Migration complete: strategy columns added');
         }
+
+        // V3: Create evaluations table for QB SKIP/FIRE decisions
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS qb_evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp INTEGER NOT NULL,
+                block_start INTEGER NOT NULL,
+                signal TEXT NOT NULL,          -- 'FIRE' or 'SKIP'
+                direction TEXT,                -- 'BUY', 'SELL', or null
+                reason TEXT,
+                gate_data TEXT,                -- JSON: full gate pass/fail details
+                block_snapshot TEXT,           -- JSON: q1/q2/q3 OHLC snapshot
+                barrier_distance REAL,
+                created_at INTEGER DEFAULT (strftime('%s', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_qb_eval_timestamp ON qb_evaluations(timestamp);
+            CREATE INDEX IF NOT EXISTS idx_qb_eval_signal ON qb_evaluations(signal);
+            CREATE INDEX IF NOT EXISTS idx_qb_eval_block ON qb_evaluations(block_start);
+        `);
     }
 
     _prepareStatements() {
@@ -561,6 +580,29 @@ class TradeLogger {
         `).run(strategyData, result.lastInsertRowid);
 
         return result.lastInsertRowid;
+    }
+
+    /**
+     * Log a Quadrant Break evaluation (FIRE or SKIP).
+     * Every block evaluation gets a row — win, lose, or skip.
+     */
+    logEvaluation(data) {
+        const { timestamp, blockStart, signal, direction, reason, gates, blockState, barrierDistance } = data;
+
+        const gateData = JSON.stringify(gates || {});
+        const blockSnapshot = JSON.stringify({
+            q1: blockState?.q1 || null,
+            q2: blockState?.q2 || null,
+            q3: blockState?.q3 || null,
+            blockOpen: blockState?.blockOpen,
+            blockHigh: blockState?.blockHigh,
+            blockLow: blockState?.blockLow
+        });
+
+        this.db.prepare(`
+            INSERT INTO qb_evaluations (timestamp, block_start, signal, direction, reason, gate_data, block_snapshot, barrier_distance)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(timestamp, blockStart, signal, direction || null, reason, gateData, blockSnapshot, barrierDistance || null);
     }
 
     /**
