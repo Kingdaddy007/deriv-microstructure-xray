@@ -1,7 +1,7 @@
 /**
- * Swarm Engine Tests
+ * Swarm Engine Tests — Jest format
  *
- * Run: node server/swarmEngine.test.js
+ * Run: npm test -- swarmEngine
  *
  * Tests each agent's vote logic and diagnostic values.
  * Uses mock volEngine — no live data needed.
@@ -10,42 +10,50 @@
 const SwarmEngine = require('./swarmEngine');
 const { normalCDF, touchProb } = SwarmEngine;
 
-let passed = 0;
-let failed = 0;
-
-function assert(condition, testName) {
-    if (condition) {
-        passed++;
-        console.log(`  ✅ ${testName}`);
-    } else {
-        failed++;
-        console.log(`  ❌ ${testName}`);
-    }
-}
-
 // ── Helper math tests ─────────────────────────────────────────
 
-console.log('\n--- normalCDF ---');
-assert(Math.abs(normalCDF(0) - 0.5) < 0.001, 'normalCDF(0) ≈ 0.5');
-assert(Math.abs(normalCDF(-1.96) - 0.025) < 0.005, 'normalCDF(-1.96) ≈ 0.025');
-assert(normalCDF(-8) === 0, 'normalCDF(-8) = 0');
-assert(normalCDF(8) === 1, 'normalCDF(8) = 1');
-assert(normalCDF(-100) === 0, 'normalCDF(-100) = 0');
-assert(normalCDF(100) === 1, 'normalCDF(100) = 1');
+describe('normalCDF', () => {
+    test('normalCDF(0) ≈ 0.5', () => {
+        expect(Math.abs(normalCDF(0) - 0.5)).toBeLessThan(0.001);
+    });
+    test('normalCDF(-1.96) ≈ 0.025', () => {
+        expect(Math.abs(normalCDF(-1.96) - 0.025)).toBeLessThan(0.005);
+    });
+    test('normalCDF(-8) = 0', () => {
+        expect(normalCDF(-8)).toBe(0);
+    });
+    test('normalCDF(8) = 1', () => {
+        expect(normalCDF(8)).toBe(1);
+    });
+    test('normalCDF(-100) = 0', () => {
+        expect(normalCDF(-100)).toBe(0);
+    });
+    test('normalCDF(100) = 1', () => {
+        expect(normalCDF(100)).toBe(1);
+    });
+});
 
-console.log('\n--- touchProb ---');
-// High sigma + tiny barrier → near certainty
-const p1 = touchProb(0.003, 2.0, 56000, 120);
-assert(p1 !== null && p1 > 0.95, `High vol, tiny barrier = ${p1?.toFixed(4)} > 0.95`);
-
-// Low sigma + wide barrier → near zero
-const p2 = touchProb(0.00005, 500.0, 56000, 120);
-assert(p2 !== null && p2 < 0.1, `Low vol, wide barrier = ${p2?.toFixed(4)} < 0.1`);
-
-// Null inputs
-assert(touchProb(null, 2.0, 56000, 120) === null, 'touchProb(null sigma) = null');
-assert(touchProb(0, 2.0, 56000, 120) === null, 'touchProb(zero sigma) = null');
-assert(touchProb(0.001, 2.0, 0, 120) === null, 'touchProb(zero price) = null');
+describe('touchProb', () => {
+    test('High vol, tiny barrier → near certainty', () => {
+        const p = touchProb(0.003, 2.0, 56000, 120);
+        expect(p).not.toBeNull();
+        expect(p).toBeGreaterThan(0.95);
+    });
+    test('Low vol, wide barrier → near zero', () => {
+        const p = touchProb(0.00005, 500.0, 56000, 120);
+        expect(p).not.toBeNull();
+        expect(p).toBeLessThan(0.1);
+    });
+    test('null sigma → null', () => {
+        expect(touchProb(null, 2.0, 56000, 120)).toBeNull();
+    });
+    test('zero sigma → null', () => {
+        expect(touchProb(0, 2.0, 56000, 120)).toBeNull();
+    });
+    test('zero price → null', () => {
+        expect(touchProb(0.001, 2.0, 0, 120)).toBeNull();
+    });
+});
 
 // ── Mock factories ────────────────────────────────────────────
 
@@ -61,279 +69,231 @@ function makeVolEngine(overrides = {}) {
 
 // ── Agent 1: Fast Reader ──────────────────────────────────────
 
-console.log('\n--- Agent 1: Fast Reader ---');
+describe('Agent 1: Fast Reader', () => {
+    test('High vol → YES with numeric edge and sigma', () => {
+        const vol = makeVolEngine({ sigma7: 0.003 });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm._agentFastReader(2.0, 56000, 0.5);
+        expect(r.vote).toBe(true);
+        expect(typeof r.edge).toBe('number');
+        expect(typeof r.sigma).toBe('number');
+    });
 
-// High sigma → high edge → YES
-{
-    const vol = makeVolEngine({ sigma10: 0.003 });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentFastReader(2.0, 56000, 0.5);
-    assert(r.vote === true, `High vol → YES (edge=${r.edge})`);
-    assert(typeof r.edge === 'number', 'Edge is a number');
-    assert(typeof r.sigma === 'number', 'Sigma is a number');
-}
+    test('High implied prob (bad payout) → edge negative → NO', () => {
+        const vol = makeVolEngine({ sigma7: 0.003 });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm._agentFastReader(2.0, 56000, 0.99);
+        expect(r.vote).toBe(false);
+    });
 
-// High implied prob (bad payout) → edge negative → NO
-{
-    const vol = makeVolEngine({ sigma10: 0.003 });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentFastReader(2.0, 56000, 0.99);
-    assert(r.vote === false, `High implied prob → NO (edge=${r.edge})`);
-}
-
-// Null sigma (warmup) → NO
-{
-    const vol = makeVolEngine({});
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentFastReader(2.0, 56000, 0.5);
-    assert(r.vote === false, 'Null sigma → NO');
-    assert(r.edge === null, 'Edge null when sigma null');
-}
+    test('Null sigma (warmup) → NO with null edge', () => {
+        const vol = makeVolEngine({});
+        const swarm = new SwarmEngine(vol);
+        const r = swarm._agentFastReader(2.0, 56000, 0.5);
+        expect(r.vote).toBe(false);
+        expect(r.edge).toBeNull();
+    });
+});
 
 // ── Agent 2: Steady Hand ──────────────────────────────────────
 
-console.log('\n--- Agent 2: Steady Hand ---');
+describe('Agent 2: Steady Hand', () => {
+    test('High 60-tick sigma → YES', () => {
+        const vol = makeVolEngine({ sigma60: 0.003 });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm._agentSteadyHand(2.0, 56000, 0.5);
+        expect(r.vote).toBe(true);
+    });
 
-// High 60-tick sigma → YES
-{
-    const vol = makeVolEngine({ sigma60: 0.003 });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentSteadyHand(2.0, 56000, 0.5);
-    assert(r.vote === true, `High sustained vol → YES (edge=${r.edge})`);
-}
+    test('Null 60-tick sigma → NO', () => {
+        const vol = makeVolEngine({});
+        const swarm = new SwarmEngine(vol);
+        const r = swarm._agentSteadyHand(2.0, 56000, 0.5);
+        expect(r.vote).toBe(false);
+    });
 
-// Null 60-tick sigma → NO
-{
-    const vol = makeVolEngine({});
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentSteadyHand(2.0, 56000, 0.5);
-    assert(r.vote === false, 'Null sigma → NO');
-}
-
-// FastReader YES but SteadyHand NO (spike, not sustained)
-{
-    const vol = makeVolEngine({ sigma10: 0.003 });
-    const swarm = new SwarmEngine(vol);
-    const fr = swarm._agentFastReader(2.0, 56000, 0.5);
-    const sh = swarm._agentSteadyHand(2.0, 56000, 0.5);
-    assert(fr.vote === true && sh.vote === false, 'Spike: FastReader YES, SteadyHand NO');
-}
+    test('Spike: FastReader YES, SteadyHand NO', () => {
+        const vol = makeVolEngine({ sigma7: 0.003 });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentFastReader(2.0, 56000, 0.5).vote).toBe(true);
+        expect(swarm._agentSteadyHand(2.0, 56000, 0.5).vote).toBe(false);
+    });
+});
 
 // ── Agent 3: Trend Surfer ─────────────────────────────────────
 
-console.log('\n--- Agent 3: Trend Surfer ---');
+describe('Agent 3: Trend Surfer', () => {
+    test('Strong UP momentum, UP trade → YES', () => {
+        const vol = makeVolEngine({ momentumScore: 0.5 });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm._agentTrendSurfer('UP');
+        expect(r.vote).toBe(true);
+        expect(r.score).toBe(0.5);
+    });
 
-// Strong UP momentum, UP trade → YES
-{
-    const vol = makeVolEngine({ momentumScore: 0.5 });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentTrendSurfer('UP');
-    assert(r.vote === true, 'Score 0.5, UP trade → YES');
-    assert(r.score === 0.5, 'Score diagnostic correct');
-}
+    test('Strong DOWN momentum, DOWN trade → YES', () => {
+        const vol = makeVolEngine({ momentumScore: -0.6 });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentTrendSurfer('DOWN').vote).toBe(true);
+    });
 
-// Strong DOWN momentum, DOWN trade → YES
-{
-    const vol = makeVolEngine({ momentumScore: -0.6 });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentTrendSurfer('DOWN');
-    assert(r.vote === true, 'Score -0.6, DOWN trade → YES');
-}
+    test('UP momentum but DOWN trade → NO', () => {
+        const vol = makeVolEngine({ momentumScore: 0.5 });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentTrendSurfer('DOWN').vote).toBe(false);
+    });
 
-// UP momentum but DOWN trade → NO
-{
-    const vol = makeVolEngine({ momentumScore: 0.5 });
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentTrendSurfer('DOWN').vote === false, 'Score 0.5, DOWN trade → NO');
-}
+    test('Weak momentum → NO (below 0.3 threshold)', () => {
+        const vol = makeVolEngine({ momentumScore: 0.2 });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentTrendSurfer('UP').vote).toBe(false);
+    });
 
-// Weak momentum → NO (below 0.3 threshold)
-{
-    const vol = makeVolEngine({ momentumScore: 0.2 });
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentTrendSurfer('UP').vote === false, 'Score 0.2, UP → NO (below 0.3)');
-}
-
-// Neutral (0) → NO for both directions
-{
-    const vol = makeVolEngine({ momentumScore: 0 });
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentTrendSurfer('UP').vote === false, 'Score 0, UP → NO');
-    assert(swarm._agentTrendSurfer('DOWN').vote === false, 'Score 0, DOWN → NO');
-}
+    test('Neutral (0) → NO for both directions', () => {
+        const vol = makeVolEngine({ momentumScore: 0 });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentTrendSurfer('UP').vote).toBe(false);
+        expect(swarm._agentTrendSurfer('DOWN').vote).toBe(false);
+    });
+});
 
 // ── Agent 4: Climate Check ────────────────────────────────────
 
-console.log('\n--- Agent 4: Climate Check ---');
+describe('Agent 4: Climate Check', () => {
+    test('Healthy market → YES', () => {
+        const vol = makeVolEngine({ volRatio: 1.2, volTrend: 'EXPANDING' });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm._agentClimateCheck();
+        expect(r.vote).toBe(true);
+        expect(r.volRatio).toBe(1.2);
+        expect(r.volTrend).toBe('EXPANDING');
+    });
 
-// Healthy market → YES
-{
-    const vol = makeVolEngine({ volRatio: 1.2, volTrend: 'EXPANDING' });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm._agentClimateCheck();
-    assert(r.vote === true, 'Ratio 1.2, EXPANDING → YES');
-    assert(r.volRatio === 1.2, 'volRatio diagnostic correct');
-    assert(r.volTrend === 'EXPANDING', 'volTrend diagnostic correct');
-}
+    test('Normal but stable → YES', () => {
+        const vol = makeVolEngine({ volRatio: 0.95, volTrend: 'STABLE' });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentClimateCheck().vote).toBe(true);
+    });
 
-// Normal but stable → YES
-{
-    const vol = makeVolEngine({ volRatio: 0.95, volTrend: 'STABLE' });
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentClimateCheck().vote === true, 'Ratio 0.95, STABLE → YES');
-}
+    test('Exactly at threshold (0.75) → YES', () => {
+        const vol = makeVolEngine({ volRatio: 0.75, volTrend: 'STABLE' });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentClimateCheck().vote).toBe(true);
+    });
 
-// Exactly at threshold (0.9) → YES
-{
-    const vol = makeVolEngine({ volRatio: 0.9, volTrend: 'STABLE' });
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentClimateCheck().vote === true, 'Ratio 0.9, STABLE → YES');
-}
+    test('Low ratio (below 0.75) → NO', () => {
+        const vol = makeVolEngine({ volRatio: 0.6, volTrend: 'STABLE' });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentClimateCheck().vote).toBe(false);
+    });
 
-// Low ratio → NO
-{
-    const vol = makeVolEngine({ volRatio: 0.7, volTrend: 'STABLE' });
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentClimateCheck().vote === false, 'Ratio 0.7 → NO');
-}
+    test('CONTRACTING → NO (even with good ratio)', () => {
+        const vol = makeVolEngine({ volRatio: 1.5, volTrend: 'CONTRACTING' });
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentClimateCheck().vote).toBe(false);
+    });
 
-// Contracting → NO (even with good ratio)
-{
-    const vol = makeVolEngine({ volRatio: 1.5, volTrend: 'CONTRACTING' });
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentClimateCheck().vote === false, 'CONTRACTING → NO');
-}
-
-// Null ratio (warmup) → NO
-{
-    const vol = makeVolEngine({});
-    const swarm = new SwarmEngine(vol);
-    assert(swarm._agentClimateCheck().vote === false, 'Null volRatio → NO');
-}
+    test('Null volRatio (warmup) → NO', () => {
+        const vol = makeVolEngine({});
+        const swarm = new SwarmEngine(vol);
+        expect(swarm._agentClimateCheck().vote).toBe(false);
+    });
+});
 
 // ── Full vote tests ───────────────────────────────────────────
 
-console.log('\n--- Full Vote ---');
-
-// 4/4 green light
-{
-    const vol = makeVolEngine({
-        sigma10: 0.003, sigma60: 0.003,
-        momentumScore: 0.5, volRatio: 1.1, volTrend: 'STABLE'
+describe('Full Vote', () => {
+    test('4/4 green light', () => {
+        const vol = makeVolEngine({
+            sigma7: 0.003, sigma60: 0.003,
+            momentumScore: 0.5, volRatio: 1.1, volTrend: 'STABLE'
+        });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm.vote(2.0, 56000, 0.5, 'UP');
+        expect(r.consensus).toBe(4);
+        expect(r.greenLight).toBe(true);
+        expect(r.votes.fastReader.vote).toBe(true);
+        expect(r.votes.steadyHand.vote).toBe(true);
+        expect(r.votes.trendSurfer.vote).toBe(true);
+        expect(r.votes.climateCheck.vote).toBe(true);
     });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(r.consensus === 4, '4/4 consensus');
-    assert(r.greenLight === true, 'Green light ON');
-    assert(r.votes.fastReader.vote === true, 'FastReader YES');
-    assert(r.votes.steadyHand.vote === true, 'SteadyHand YES');
-    assert(r.votes.trendSurfer.vote === true, 'TrendSurfer YES');
-    assert(r.votes.climateCheck.vote === true, 'ClimateCheck YES');
-}
 
-// 3/4 green light (ClimateCheck fails)
-{
-    const vol = makeVolEngine({
-        sigma10: 0.003, sigma60: 0.003,
-        momentumScore: 0.5, volRatio: 0.7, volTrend: 'CONTRACTING'
+    test('3/4 green light (ClimateCheck fails)', () => {
+        const vol = makeVolEngine({
+            sigma7: 0.003, sigma60: 0.003,
+            momentumScore: 0.5, volRatio: 0.7, volTrend: 'CONTRACTING'
+        });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm.vote(2.0, 56000, 0.5, 'UP');
+        expect(r.consensus).toBe(3);
+        expect(r.greenLight).toBe(true);
+        expect(r.votes.climateCheck.vote).toBe(false);
     });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(r.consensus === 3, '3/4 consensus');
-    assert(r.greenLight === true, 'Green light ON at 3/4');
-    assert(r.votes.climateCheck.vote === false, 'ClimateCheck NO');
-}
 
-// 2/4 no green light (only TrendSurfer + ClimateCheck pass)
-{
-    const vol = makeVolEngine({
-        sigma10: null, sigma60: null,
-        momentumScore: 0.5, volRatio: 1.1, volTrend: 'STABLE'
+    test('2/4 no green light', () => {
+        const vol = makeVolEngine({
+            sigma7: null, sigma60: null,
+            momentumScore: 0.5, volRatio: 1.1, volTrend: 'STABLE'
+        });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm.vote(2.0, 56000, 0.5, 'UP');
+        expect(r.consensus).toBe(2);
+        expect(r.greenLight).toBe(false);
     });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(r.consensus === 2, `2/4 consensus`);
-    assert(r.greenLight === false, 'Green light OFF at 2/4');
-    assert(r.votes.fastReader.vote === false, 'FastReader NO (null sigma)');
-    assert(r.votes.steadyHand.vote === false, 'SteadyHand NO (null sigma)');
-}
 
-// 0/4 warmup (everything null)
-{
-    const vol = makeVolEngine({});
-    const swarm = new SwarmEngine(vol);
-    const r = swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(r.consensus === 0, '0/4 consensus (warmup)');
-    assert(r.greenLight === false, 'Green light OFF during warmup');
-}
-
-// ── Diagnostic values in vote result ──────────────────────────
-
-console.log('\n--- Diagnostic Values ---');
-
-{
-    const vol = makeVolEngine({
-        sigma10: 0.003, sigma60: 0.002,
-        momentumScore: 0.5, volRatio: 1.2, volTrend: 'EXPANDING'
+    test('0/4 warmup', () => {
+        const vol = makeVolEngine({});
+        const swarm = new SwarmEngine(vol);
+        const r = swarm.vote(2.0, 56000, 0.5, 'UP');
+        expect(r.consensus).toBe(0);
+        expect(r.greenLight).toBe(false);
     });
-    const swarm = new SwarmEngine(vol);
-    const r = swarm.vote(2.0, 56000, 0.5, 'UP');
+});
 
-    assert(typeof r.votes.fastReader.edge === 'number', 'FastReader has edge');
-    assert(typeof r.votes.fastReader.sigma === 'number', 'FastReader has sigma');
-    assert(typeof r.votes.steadyHand.edge === 'number', 'SteadyHand has edge');
-    assert(typeof r.votes.steadyHand.sigma === 'number', 'SteadyHand has sigma');
-    assert(typeof r.votes.trendSurfer.score === 'number', 'TrendSurfer has score');
-    assert(typeof r.votes.climateCheck.volRatio === 'number', 'ClimateCheck has volRatio');
-    assert(typeof r.votes.climateCheck.volTrend === 'string', 'ClimateCheck has volTrend');
-}
+// ── Diagnostic values ─────────────────────────────────────────
 
-// ── Consensus trend tests ─────────────────────────────────────
+describe('Diagnostic Values', () => {
+    test('all diagnostic fields present in vote result', () => {
+        const vol = makeVolEngine({
+            sigma7: 0.003, sigma60: 0.002,
+            momentumScore: 0.5, volRatio: 1.2, volTrend: 'EXPANDING'
+        });
+        const swarm = new SwarmEngine(vol);
+        const r = swarm.vote(2.0, 56000, 0.5, 'UP');
 
-console.log('\n--- Consensus Trend ---');
-
-{
-    const vol = makeVolEngine({
-        sigma10: 0.003, sigma60: 0.003,
-        momentumScore: 0.5, volRatio: 1.1, volTrend: 'STABLE'
+        expect(typeof r.votes.fastReader.edge).toBe('number');
+        expect(typeof r.votes.fastReader.sigma).toBe('number');
+        expect(typeof r.votes.steadyHand.edge).toBe('number');
+        expect(typeof r.votes.steadyHand.sigma).toBe('number');
+        expect(typeof r.votes.trendSurfer.score).toBe('number');
+        expect(typeof r.votes.climateCheck.volRatio).toBe('number');
+        expect(typeof r.votes.climateCheck.volTrend).toBe('string');
     });
-    const swarm = new SwarmEngine(vol);
+});
 
-    // First 4 votes at consensus=4 → STEADY (not enough history)
-    for (let i = 0; i < 4; i++) swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(swarm.consensusTrend === 'STEADY', 'First 4 votes → STEADY');
+// ── Consensus trend ───────────────────────────────────────────
 
-    // 5th vote → STEADY
-    swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(swarm.consensusTrend === 'STEADY', '5th vote → STEADY');
+describe('Consensus Trend', () => {
+    test('trend tracks rising and falling consensus', () => {
+        const vol = makeVolEngine({
+            sigma10: 0.003, sigma60: 0.003,
+            momentumScore: 0.5, volRatio: 1.1, volTrend: 'STABLE'
+        });
+        const swarm = new SwarmEngine(vol);
 
-    // Now degrade volRatio → consensus drops to 3 → FALLING
-    vol.volRatio = 0.7; // ClimateCheck now votes NO
-    // After 2 votes at 3: history = [4,4,4,4,4,4,3,3]
-    // Last 5: [4,4,4,3,3] → 4 > 3 → FALLING
-    swarm.vote(2.0, 56000, 0.5, 'UP');
-    swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(swarm.consensusTrend === 'FALLING', 'Consensus dropping → FALLING');
+        // Build history at 4/4
+        for (let i = 0; i < 5; i++) swarm.vote(2.0, 56000, 0.5, 'UP');
+        expect(swarm.consensusTrend).toBe('STEADY');
 
-    // Restore → consensus back to 4 → RISING
-    vol.volRatio = 1.2;
-    // Push 3 votes at consensus=4 to shift last-5 window
-    // History before: [4,4,4,4,4,4,3,3]
-    // After 3 pushes: [4,4,4,4,4,6,3,3,4,4,4] → shifted to [4,4,4,4,6,3,3,4,4,4]
-    // Wait, that's not right. Let me trace:
-    // After degraded: history = [4,4,4,4,4,4,3,3], len=8
-    // Push 4: len=9 → [4,4,4,4,4,4,3,3,4]
-    // Push 4: len=10 → [4,4,4,4,4,4,3,3,4,4]
-    // Push 4: len=11 → shift → [4,4,4,4,4,3,3,4,4,4]
-    // Last 5: [3,3,4,4,4] → 3 < 4 → RISING
-    for (let i = 0; i < 3; i++) swarm.vote(2.0, 56000, 0.5, 'UP');
-    assert(swarm.consensusTrend === 'RISING', 'Consensus recovering → RISING');
-}
+        // Degrade → ClimateCheck fails → 3/4
+        vol.volRatio = 0.6;
+        swarm.vote(2.0, 56000, 0.5, 'UP');
+        swarm.vote(2.0, 56000, 0.5, 'UP');
+        expect(swarm.consensusTrend).toBe('FALLING');
 
-// ── Summary ───────────────────────────────────────────────────
-
-console.log('\n══════════════════════════════');
-console.log(`Results: ${passed} passed, ${failed} failed`);
-console.log('══════════════════════════════\n');
-
-process.exit(failed > 0 ? 1 : 0);
+        // Restore → back to 4/4
+        vol.volRatio = 1.2;
+        for (let i = 0; i < 3; i++) swarm.vote(2.0, 56000, 0.5, 'UP');
+        expect(swarm.consensusTrend).toBe('RISING');
+    });
+});
